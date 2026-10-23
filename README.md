@@ -1,39 +1,30 @@
-# TCL Light — launcher leve para Android TV
+# TCL Light — Android TV minimalista
 
-Projeto nativo em **Kotlin**, criado para a TV **TCL 40S6500FS** e outras TVs compatíveis com Android TV (Android 6+). Interface escura e simples, sem anúncios, WebView, tracking ou permissão de internet. Não modifica o firmware.
+**Versão 0.3.0** · App nativo Kotlin para a TCL 40S6500FS e Android TV 6 ou superior.
 
-## APK pronto pelo GitHub Actions
+## Experiência
 
-1. Acesse a aba [Actions](../../actions) e abra **Compilar APK TCL Light**.
-2. Abra a execução mais recente concluída com sucesso e baixe o artefato **TCL-Light-APK**.
-3. Também é possível baixar o `TCL-Light-beta.apk` na aba [Releases](../../releases/tag/beta) após o primeiro build bem-sucedido.
-4. Instale via pendrive, app gerenciador de arquivos ou ADB.
+- Tela inicial inspirada na organização do Google TV, mas com design próprio, sem menus de propaganda ou carregamento pela internet.
+- Fundo original abstrato e cinematográfico, desenhado pelo Android Canvas, sem imagens pesadas nem reprodução em segundo plano.
+- Cabeçalho simples com relógio, data, TV, atualizar e engrenagem das configurações.
+- Configurações **não aparecem como aplicativo**.
+- **Somente apps de streaming/mídia instalados**: apps de vídeo, TV, IPTV, áudio e música identificados pelos nomes, pacotes ou categoria de mídia Android. Nenhum cartão para serviços ausentes.
+- Favoritos preservados de versões anteriores, quando continuam sendo serviços de mídia instalados. Segure OK em um app para incluir/remover.
+- Navegação pelo controle remoto: setas, OK, pressionar OK, MENU (Configurações), voltar.
+- Offline, sem permissões sensíveis, rastreamento ou anúncios.
 
-O workflow roda automaticamente ao publicar na branch `main` ou manualmente pelo botão **Run workflow**. Usa JDK 17, Gradle 8.10.2, Android SDK 35.
+## APK
 
-## Recursos
+O [GitHub Actions](../../actions) gera o APK e publica automaticamente em [Releases → Beta](../../releases/tag/beta) no push para `main`. O app usa o mesmo `applicationId` da versão anterior e `versionCode=3`. A assinatura permanece no mecanismo de cache da chave de debug atual; o Android só instalará sobre a versão antiga se a assinatura for a mesma. Para atualizações definitivas, adotar uma assinatura de release persistente em segredo privado.
 
-- Navegação com controle remoto: setas, OK, Voltar e MENU.
-- Grade de apps instalados e seção de favoritos (segure OK para alterar).
-- Atalhos para TV/Canais (quando aplicativo visível), Configurações e Atualizar.
-- Relógio, interface premium leve com elementos nativos.
-- Sem conexão de rede, anúncios, analytics, conta ou permissões sensíveis.
+## Compatibilidade e limites
 
-## Instalação e reversão
-
-**Teste primeiro como aplicativo comum**. Não remova ou desative os launchers originais TCL/Google. Abra TCL Light na lista de apps, teste navegação, reprodução de apps e acesso às Configurações. Caso o Android TV ofereça escolher o app Home, selecione TCL Light. Alguns firmwares da TCL ignoram apps Home de terceiros — essa limitação não pode ser contornada com segurança em todos os modelos.
-
-A tecla INPUT/SOURCE original continua sendo o modo mais confiável de mudar as entradas HDMI.
-
-## Limitações da versão beta
-
-- Ainda não foi testado em TV real.
-- Não corrige lentidão interna de outros aplicativos nem adiciona RAM.
-- O APK inicial usa **assinatura de teste**. O workflow guarda sua chave no cache para facilitar a atualização, mas o cache pode expirar; para atualizações confiáveis de longo prazo será necessário configurar assinatura privada release.
-- Esta versão mantém **targetSdk 28** como opção de compatibilidade com o Android TV antigo; não é uma versão pronta para publicação na Play Store.
+- A classificação de apps de mídia usa um filtro conservador. Apps de streaming muito novos, com nomes/pacotes incomuns e categoria Android não definida podem não ser reconhecidos. Nenhum aplicativo é instalado ou criado artificialmente.
+- Pressionar **TV** inicia um app de TV já instalado quando identificável. HDMI continua acessível pela tecla física INPUT/SOURCE do controle.
+- Não desative o launcher original da TCL. Configurar um app como Home depende das restrições do firmware.
+- Mudar launcher não acelera a decodificação ou o streaming dos outros aplicativos.
+- Build de teste: `targetSdk=28`, não preparado para Play Store.
 
 ## Build local
 
-Abra no Android Studio com JDK 17 e SDK 35 ou execute `gradle :app:assembleDebug` com Gradle 8.10.2.
-
-Código fonte inicial. Licença de distribuição não especificada.
+Android SDK 35, Gradle 8.10.2, JDK 17. Executar `gradle :app:assembleDebug` ou baixar APK em Releases.
