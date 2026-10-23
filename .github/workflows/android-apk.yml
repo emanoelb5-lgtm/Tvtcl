@@ -22,11 +22,11 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Preparar Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Instalar Android SDK 35
-        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+        run: |
+          echo "SDK disponível em: $ANDROID_HOME"
+          which sdkmanager
+          sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
 
       # Mantém a chave debug entre builds quando o cache estiver disponível.
       # Para distribuição definitiva, configurar uma assinatura release privada.
