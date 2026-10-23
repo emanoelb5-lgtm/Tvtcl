@@ -8,6 +8,7 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.hardware.input.InputManager
 import android.net.ConnectivityManager
@@ -30,6 +31,16 @@ import java.util.concurrent.Executors
 /** Native, offline TV Home. Background work never blocks remote-control dispatch. */
 class MainActivity : Activity() {
     private data class TvApp(val name: String, val packageName: String, val component: ComponentName)
+    private data class ArtworkBinding(val card: View, val image: ImageView, val placeholder: View,
+        val component: ComponentName, val large: Boolean, var visible: Boolean = false,
+        var loading: Boolean = false, var hasImage: Boolean = false)
+    private val artworkBindings = ArrayList<ArtworkBinding>()
+    private val visibleRect = Rect()
+    private var artworkUpdatePending = false
+    private val updateVisibleArtwork = Runnable {
+        artworkUpdatePending = false
+        if(foreground) refreshVisibleArtwork()
+    }
     private val handler = Handler(Looper.getMainLooper())
     private val locale = Locale("pt", "BR")
     private val prefs by lazy { getSharedPreferences("launcher", MODE_PRIVATE) }
@@ -135,6 +146,7 @@ class MainActivity : Activity() {
         registerStatusListeners()
         if(appsDirty) refresh()
         if(usageDirty) { usageDirty = false; renderApps() }
+        requestArtworkUpdate()
     }
 
     override fun onStop() {
@@ -258,6 +270,7 @@ class MainActivity : Activity() {
             setPadding(dp(42),dp(6),dp(42),dp(14))
         }
         listScroll.addView(column)
+        listScroll.viewTreeObserver.addOnScrollChangedListener { requestArtworkUpdate() }
         val sceneSpace = ((resources.configuration.screenHeightDp-440)*.38f).toInt().coerceIn(32,110)
         column.addView(View(this),lp(-1,dp(sceneSpace)))
         column.addView(section("Mais utilizados","Pelo seu uso"),lp(-1,dp(28),0,0,3,6))
@@ -332,17 +345,7 @@ class MainActivity : Activity() {
         surface.addView(fallback,FrameLayout.LayoutParams(-1,-1))
         val image = ImageView(this).apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
         surface.addView(image,FrameLayout.LayoutParams(-1,-1))
-        val componentKey = app.component.flattenToString()
-        image.tag = componentKey
-        artwork.load(app.component) { art ->
-            if(art != null && image.tag == componentKey && !isDestroyed) {
-                fallback.visibility = View.GONE
-                image.scaleType = ImageView.ScaleType.FIT_CENTER
-                val padding = if(art.banner) 0 else dp(if(large) 14 else 16)
-                image.setPadding(padding,padding,padding,padding)
-                image.setImageBitmap(art.bitmap)
-            }
-        }
+        artworkBindings.add(ArtworkBinding(card,image,fallback,app.component,large))
         if(app.packageName in pinnedApps()) surface.addView(ImageView(this).apply {
             setImageDrawable(TvIcon(TvIcon.Kind.PIN,ui.accent))
             background = ui.surface(Color.argb(222,7,19,28),6)
@@ -414,6 +417,7 @@ class MainActivity : Activity() {
         }
         setTextIfChanged(appCount,visible.size.toString() + if(visible.size == 1) " aplicativo" else " aplicativos")
         wireNavigation(columns)
+        homeLayer.post { requestArtworkUpdate() }
         val initial = firstData
         firstData = false
         if(changed && panel == null) {
@@ -421,6 +425,41 @@ class MainActivity : Activity() {
                 else homeViews[keep] ?: topViews.firstOrNull()
             homeLayer.post {
                 if(!isDestroyed && panel == null && target?.isAttachedToWindow == true) target.requestFocus()
+            }
+        }
+    }
+
+    private fun requestArtworkUpdate() {
+        if(!artworkUpdatePending && foreground && !isDestroyed) {
+            artworkUpdatePending = true
+            handler.postDelayed(updateVisibleArtwork,16L)
+        }
+    }
+
+    /** Only visible cards own a bitmap; offscreen rows return to the bounded cache. */
+    private fun refreshVisibleArtwork() {
+        artworkBindings.removeAll { it.card.parent == null }
+        for(binding in artworkBindings) {
+            binding.visible = binding.image.isShown && binding.image.getGlobalVisibleRect(visibleRect)
+            if(!binding.visible) {
+                if(binding.hasImage) {
+                    binding.image.setImageDrawable(null)
+                    binding.placeholder.visibility = View.VISIBLE
+                    binding.hasImage = false
+                }
+            } else if(!binding.loading && !binding.hasImage) {
+                binding.loading = true
+                artwork.load(binding.component) { art ->
+                    binding.loading = false
+                    if(art != null && binding.visible && binding.card.isAttachedToWindow && !isDestroyed) {
+                        binding.placeholder.visibility = View.GONE
+                        binding.image.scaleType = ImageView.ScaleType.FIT_CENTER
+                        val padding = if(art.banner) 0 else dp(if(binding.large) 14 else 16)
+                        binding.image.setPadding(padding,padding,padding,padding)
+                        binding.image.setImageBitmap(art.bitmap)
+                        binding.hasImage = true
+                    }
+                }
             }
         }
     }
@@ -511,7 +550,7 @@ class MainActivity : Activity() {
     }
 
     private fun controllers(): List<String> = try {
-        InputDevice.getDeviceIds().mapNotNull { InputDevice.getDevice(it) }.filter { device ->
+        InputDevice.getDeviceIds().toList().mapNotNull { InputDevice.getDevice(it) }.filter { device ->
             !device.isVirtual && (device.supportsSource(InputDevice.SOURCE_DPAD) ||
                 device.supportsSource(InputDevice.SOURCE_GAMEPAD) ||
                 device.supportsSource(InputDevice.SOURCE_KEYBOARD) ||

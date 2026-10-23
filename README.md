@@ -14,7 +14,7 @@ Launcher nativo e offline para Android TV, com atenção à TCL 40S6500FS.
 
 ## Fluidez
 
-- Fundos e miniaturas são carregados fora da thread da interface. Miniaturas limitadas a 320×180 ou ícones 128×128, com cache de 4 MiB compartilhado pelas duas seções.
+- Fundos e miniaturas são carregados fora da thread da interface. Só os cartões visíveis carregam imagens; os que saem da tela liberam sua imagem. Miniaturas limitadas a 320×180 ou ícones 128×128, com cache de 4 MiB compartilhado pelas duas seções.
 - Retornar de outro app não recria toda a tela: a grade permanece e a linha de mais utilizados só muda quando sua ordem muda.
 - Instalações e alterações de apps, rede e periféricos atualizam por eventos; sem varredura periódica de aplicativos.
 - Relógio atualizado por minuto. Fundos e observadores de estado param quando a tela fica invisível; executores são encerrados junto com a Activity.
