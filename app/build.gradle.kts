@@ -29,6 +29,11 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+    lint {
+        // Direct APK distribution for legacy TV firmware, not a Google Play submission.
+        // Keep this policy finding visible; all other release errors remain fatal.
+        warning += "ExpiredTargetSdkVersion"
+    }
 }
 
 
