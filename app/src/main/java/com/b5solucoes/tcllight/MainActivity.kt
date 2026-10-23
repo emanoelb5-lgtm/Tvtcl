@@ -818,7 +818,8 @@ class MainActivity : Activity() {
     }
 
     private fun openInputSelector() {
-        try { startActivity(Intent(Intent.ACTION_TV_INPUT_BUTTON).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        // Native TV handlers may expose this action; the SDK has no public Intent constant for it.
+        try { startActivity(Intent("android.intent.action.TV_INPUT_BUTTON").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
         catch (_: Exception) { openTv() }
     }
 
