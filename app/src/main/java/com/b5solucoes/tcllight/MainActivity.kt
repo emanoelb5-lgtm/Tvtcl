@@ -24,11 +24,16 @@ import android.widget.TextView
 import android.widget.Toast
 import java.text.Collator
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlin.concurrent.thread
 
-/** TCL Light: launcher Android TV offline, sem serviços em segundo plano. */
+/**
+ * TCL Light Premium UI.
+ * Android TV puro: sem WebView, animações contínuas, rede ou bibliotecas adicionais.
+ * A identidade do aplicativo não aparece na interface principal.
+ */
 class MainActivity : Activity() {
     private data class TvApp(
         val name: String,
@@ -37,42 +42,48 @@ class MainActivity : Activity() {
         val icon: Drawable?
     )
 
-    private val navy = Color.rgb(8, 17, 29)
-    private val panel = Color.rgb(19, 32, 48)
-    private val mint = Color.rgb(93, 225, 213)
-    private val light = Color.WHITE
-    private val muted = Color.rgb(162, 181, 198)
-    private val ui = Handler(Looper.getMainLooper())
+    private val bg = Color.rgb(9, 13, 20)
+    private val surface = Color.rgb(24, 30, 39)
+    private val surfaceFocus = Color.rgb(39, 51, 62)
+    private val accent = Color.rgb(185, 231, 224)
+    private val white = Color.rgb(243, 246, 249)
+    private val soft = Color.rgb(155, 167, 182)
+    private val subtle = Color.rgb(112, 126, 140)
     private val locale = Locale("pt", "BR")
+    private val handler = Handler(Looper.getMainLooper())
     private val prefs by lazy { getSharedPreferences("launcher", MODE_PRIVATE) }
-    private var clockView: TextView? = null
-    private var dateView: TextView? = null
-    private var body: LinearLayout? = null
+
+    private var timeLabel: TextView? = null
+    private var dateLabel: TextView? = null
+    private var greetingLabel: TextView? = null
+    private var listContainer: LinearLayout? = null
+    private var scrollContainer: ScrollView? = null
     private var apps: List<TvApp> = emptyList()
     private var scanning = false
     private var lastScan = 0L
+    private var firstRender = true
 
-    private val clockTask = object : Runnable {
+    private val tick = object : Runnable {
         override fun run() {
-            clockView?.text = SimpleDateFormat("HH:mm", locale).format(Date())
-            val full = SimpleDateFormat("EEEE, d 'de' MMMM", locale).format(Date())
-            dateView?.text = full.replaceFirstChar { it.titlecase(locale) }
-            ui.postDelayed(this, 60000L)
+            val now = Date()
+            timeLabel?.text = SimpleDateFormat("HH:mm", locale).format(now)
+            dateLabel?.text = SimpleDateFormat("EEE, dd 'de' MMM", locale)
+                .format(now).replaceFirstChar { it.titlecase(locale) }
+            greetingLabel?.text = greeting()
+            handler.postDelayed(this, 60000L)
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = navy
-        window.navigationBarColor = navy
+        window.statusBarColor = bg
+        window.navigationBarColor = bg
         @Suppress("DEPRECATION")
-        window.decorView.systemUiVisibility = (
-            View.SYSTEM_UI_FLAG_FULLSCREEN or
-            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
-            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-        )
-        drawShell()
-        ui.post(clockTask)
+        window.decorView.systemUiVisibility =
+            View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        createLayout()
+        handler.post(tick)
         refresh()
     }
 
@@ -82,7 +93,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
-        ui.removeCallbacks(clockTask)
+        handler.removeCallbacks(tick)
         super.onDestroy()
     }
 
@@ -94,250 +105,367 @@ class MainActivity : Activity() {
         return super.onKeyDown(keyCode, event)
     }
 
-    private fun dp(n: Int): Int = (n * resources.displayMetrics.density + 0.5f).toInt()
+    private fun greeting(): String = when (Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) {
+        in 5..11 -> "Bom dia."
+        in 12..17 -> "Boa tarde."
+        else -> "Boa noite."
+    }
 
-    private fun label(content: String, size: Float, color: Int = light, bold: Boolean = false) =
-        TextView(this).apply {
-            text = content
-            textSize = size
-            setTextColor(color)
-            includeFontPadding = false
-            if (bold) typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-        }
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density + 0.5f).toInt()
 
-    private fun shape(fill: Int = panel, border: Int? = null): GradientDrawable =
-        GradientDrawable().apply {
-            setColor(fill)
-            cornerRadius = dp(15).toFloat()
-            if (border != null) setStroke(dp(2), border)
-        }
+    private fun dimensions(
+        width: Int, height: Int,
+        left: Int = 0, top: Int = 0, right: Int = 0, bottom: Int = 0
+    ) = LinearLayout.LayoutParams(width, height).apply {
+        setMargins(dp(left), dp(top), dp(right), dp(bottom))
+    }
 
-    private fun lp(w: Int, h: Int, l: Int = 0, t: Int = 0, r: Int = 0, b: Int = 0) =
-        LinearLayout.LayoutParams(w, h).apply { setMargins(dp(l), dp(t), dp(r), dp(b)) }
+    private fun text(
+        value: String,
+        size: Float,
+        color: Int = white,
+        medium: Boolean = false
+    ) = TextView(this).apply {
+        this.text = value
+        textSize = size
+        setTextColor(color)
+        includeFontPadding = false
+        if (medium) typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        isSingleLine = false
+    }
 
-    private fun drawShell() {
+    private fun background(
+        color: Int = surface,
+        radiusDp: Int = 18,
+        strokeColor: Int? = null
+    ) = GradientDrawable().apply {
+        setColor(color)
+        cornerRadius = dp(radiusDp).toFloat()
+        if (strokeColor != null) setStroke(dp(2), strokeColor)
+    }
+
+    private fun createLayout() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.rgb(19, 41, 61), navy, Color.rgb(4, 10, 20))
+                intArrayOf(Color.rgb(19, 28, 40), bg, Color.rgb(7, 10, 16))
             )
+            clipChildren = false
+            clipToPadding = false
         }
         setContentView(root)
 
+        // Cabeçalho discreto: nenhuma marca ou texto TCL Light na tela.
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            clipChildren = false
         }
-        root.addView(header, lp(-1, dp(65), 38, 14, 38, 0))
-        header.addView(View(this).apply { background = shape(mint) }, lp(dp(7), dp(29), 0, 0, 15))
-        header.addView(label("TCL  LIGHT", 22f, light, true), LinearLayout.LayoutParams(0, -2, 1f))
-        val timeStack = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.END }
-        clockView = label("", 25f, light, true).apply { gravity = Gravity.END }
-        dateView = label("", 12f, muted).apply { gravity = Gravity.END }
-        timeStack.addView(clockView)
-        timeStack.addView(dateView)
-        header.addView(timeStack)
+        root.addView(header, dimensions(-1, dp(94), 48, 14, 48, 0))
 
-        val scroll = ScrollView(this).apply {
-            fillViewportCompat()
-            overScrollMode = View.OVER_SCROLL_NEVER
-            clipToPadding = false
-        }
-        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        val column = LinearLayout(this).apply {
+        val left = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(38), dp(8), dp(38), dp(26))
-        }
-        body = column
-        scroll.addView(column)
-
-        column.addView(label("Sua TV, sem distrações.", 31f, light, true), lp(-1, -2, 0, 4, 0, 8))
-        column.addView(label("Acesse seus aplicativos com menos espera.", 14f, muted), lp(-1, -2, 0, 0, 0, 23))
-
-        val footer = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        root.addView(footer, lp(-1, dp(35), 38, 0, 38, 8))
-        footer.addView(label("OK: abrir   •   Segure OK: favorito   •   MENU: configurações", 11f, muted),
+        greetingLabel = text(greeting(), 29f, white, true)
+        left.addView(greetingLabel)
+        left.addView(
+            text("Tudo no seu lugar.", 12.5f, soft),
+            dimensions(-1, -2, 0, 7)
+        )
+        header.addView(left, LinearLayout.LayoutParams(0, -2, 1f))
+
+        val right = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.END
+        }
+        timeLabel = text("--:--", 34f, white, true).apply {
+            gravity = Gravity.END
+            letterSpacing = 0.03f
+        }
+        dateLabel = text("", 11.5f, soft).apply { gravity = Gravity.END }
+        right.addView(timeLabel)
+        right.addView(dateLabel, dimensions(-1, -2, 0, 4))
+        header.addView(right, dimensions(dp(175), -2))
+
+        val scroll = ScrollView(this).apply {
+            isFillViewport = true
+            isVerticalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            clipChildren = false
+            clipToPadding = false
+            descendantFocusability = android.view.ViewGroup.FOCUS_AFTER_DESCENDANTS
+        }
+        scrollContainer = scroll
+        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        listContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            clipChildren = false
+            clipToPadding = false
+            setPadding(dp(48), dp(8), dp(38), dp(26))
+        }
+        scroll.addView(listContainer)
+
+        val bottom = LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            orientation = LinearLayout.HORIZONTAL
+        }
+        bottom.addView(text("OK  Abrir    •    Segure OK  Favoritar    •    MENU  Ajustes", 10.5f, subtle),
             LinearLayout.LayoutParams(0, -2, 1f))
-        footer.addView(label("OFFLINE  •  SEM ANÚNCIOS", 10f, mint, true))
+        bottom.addView(text("●", 10f, accent), dimensions(-2, -2, 0, 0, 7))
+        bottom.addView(text("Modo leve", 10.5f, soft))
+        root.addView(bottom, dimensions(-1, dp(38), 48, 0, 48, 4))
     }
 
-    private fun ScrollView.fillViewportCompat() { isFillViewport = true }
+    private fun heading(title: String, description: String = ""): View {
+        val row = LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            orientation = LinearLayout.HORIZONTAL
+        }
+        row.addView(text(title, 19f, white, true),
+            LinearLayout.LayoutParams(0, -2, 1f))
+        if (description.isNotBlank()) row.addView(text(description, 11.5f, subtle))
+        return row
+    }
+
+    private fun styleFocus(view: View, focusKey: String? = null) {
+        view.background = background()
+        view.isFocusable = true
+        view.isFocusableInTouchMode = false
+        view.setOnFocusChangeListener { item, focused ->
+            item.animate().cancel()
+            item.background = if (focused) background(surfaceFocus, 18, accent)
+                else background()
+            item.elevation = if (focused) dp(8).toFloat() else 0f
+            item.animate()
+                .scaleX(if (focused) 1.025f else 1f)
+                .scaleY(if (focused) 1.025f else 1f)
+                .setDuration(105L)
+                .start()
+            if (focused && focusKey != null) {
+                prefs.edit().putString("focusKey", focusKey).apply()
+            }
+        }
+    }
+
+    private fun tile(app: TvApp, featured: Boolean): View {
+        val card = LinearLayout(this).apply {
+            gravity = Gravity.CENTER
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(10), dp(10), dp(10), dp(8))
+            clipChildren = false
+            clipToPadding = false
+            contentDescription = app.name
+        }
+        val iconSize = if (featured) 66 else 42
+        val icon = ImageView(this).apply {
+            setImageDrawable(app.icon)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            contentDescription = null
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        card.addView(icon, dimensions(dp(iconSize), dp(iconSize), 0, 0, 0, if (featured) 11 else 8))
+        val appName = text(app.name, if (featured) 13f else 11.5f, white, featured).apply {
+            gravity = Gravity.CENTER
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        card.addView(appName, dimensions(-1, -2))
+        card.setOnClickListener { launch(app) }
+        card.setOnLongClickListener { toggleFavorite(app); true }
+        styleFocus(card, "app:" + app.packageId)
+        return card
+    }
+
+    private fun command(title: String, sign: String, action: () -> Unit): View {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            clipChildren = false
+            setPadding(dp(17), 0, dp(11), 0)
+            contentDescription = title
+        }
+        val glyph = text(sign, 20f, accent, true).apply { gravity = Gravity.CENTER }
+        card.addView(glyph, dimensions(dp(36), -2, 0, 0, 10))
+        card.addView(text(title, 13f, white, true))
+        card.setOnClickListener { action() }
+        styleFocus(card, "action:" + title)
+        return card
+    }
+
+    private fun render() {
+        val container = listContainer ?: return
+        val focusBefore = currentFocus?.tag as? String
+        val focusSaved = focusBefore ?: prefs.getString("focusKey", null)
+        container.removeAllViews()
+
+        container.addView(
+            heading("Favoritos"),
+            dimensions(-1, -2, 0, 13, 10, 16)
+        )
+
+        val strip = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            clipChildren = false
+            clipToPadding = false
+        }
+        val line = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            clipChildren = false
+            clipToPadding = false
+            setPadding(dp(5), dp(5), dp(10), dp(5))
+        }
+        strip.addView(line)
+        container.addView(strip, dimensions(-1, dp(147), 0, 0, 0, 24))
+
+        val chosen = favorites().mapNotNull { id -> apps.firstOrNull { it.packageId == id } }
+        var firstTile: View? = null
+        val focusable = LinkedHashMap<String, View>()
+        for (app in chosen) {
+            val view = tile(app, true)
+            view.tag = "app:" + app.packageId
+            if (firstTile == null) firstTile = view
+            focusable[view.tag.toString()] = view
+            line.addView(view, dimensions(dp(153), dp(132), 0, 0, 13))
+        }
+        if (chosen.isEmpty()) {
+            line.addView(
+                text("Adicione favoritos mantendo OK pressionado sobre um aplicativo.", 13f, soft),
+                dimensions(-1, -2, 8, 25)
+            )
+        }
+
+        val commands = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            clipChildren = false
+            clipToPadding = false
+            setPadding(dp(5), dp(4), dp(1), dp(4))
+        }
+        val shortcuts = listOf(
+            command("TV e canais", "◉") { openTv() },
+            command("Configurações", "⚙") { openSettings() },
+            command("Atualizar", "↻") { refresh() }
+        )
+        for (shortcut in shortcuts) {
+            shortcut.tag = "action:" + shortcut.contentDescription
+            focusable[shortcut.tag.toString()] = shortcut
+            commands.addView(shortcut,
+                LinearLayout.LayoutParams(0, dp(62), 1f).apply {
+                    rightMargin = dp(13)
+                })
+        }
+        container.addView(commands, dimensions(-1, dp(77), 0, 0, 0, 22))
+
+        container.addView(
+            heading("Aplicativos", "${apps.size} instalados"),
+            dimensions(-1, -2, 0, 0, 10, 18)
+        )
+
+        for (batch in apps.chunked(5)) {
+            val gridRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                clipChildren = false
+                clipToPadding = false
+                setPadding(dp(5), dp(3), 0, dp(7))
+            }
+            for (app in batch) {
+                val view = tile(app, false)
+                view.tag = "app:" + app.packageId
+                if (firstTile == null) firstTile = view
+                focusable.putIfAbsent(view.tag.toString(), view)
+                gridRow.addView(view,
+                    LinearLayout.LayoutParams(0, dp(96), 1f).apply {
+                        rightMargin = dp(13)
+                    })
+            }
+            repeat(5 - batch.size) {
+                gridRow.addView(View(this), LinearLayout.LayoutParams(0, dp(96), 1f).apply {
+                    rightMargin = dp(13)
+                })
+            }
+            container.addView(gridRow, dimensions(-1, dp(110)))
+        }
+
+        if (apps.isEmpty()) {
+            container.addView(text("Nenhum aplicativo visível encontrado.", 13f, soft))
+        }
+
+        val next = focusable[focusSaved] ?: firstTile ?: shortcuts.first()
+        if (firstRender) {
+            scrollContainer?.scrollTo(0, 0)
+            firstRender = false
+        }
+        next.post {
+            if (!isFinishing && !isDestroyed && next.isAttachedToWindow) next.requestFocus()
+        }
+    }
 
     private fun refresh() {
         if (scanning) return
         scanning = true
-        thread(name = "tcl-app-list") {
-            val discovered = try { scanApps() } catch (_: Exception) { emptyList() }
+        thread(name = "tv-app-scan") {
+            val found = try { scanApps() } catch (_: Exception) { emptyList() }
             runOnUiThread {
                 scanning = false
                 if (isFinishing || isDestroyed) return@runOnUiThread
-                apps = discovered
+                apps = found
                 lastScan = System.currentTimeMillis()
-                populate()
+                render()
             }
         }
     }
 
     private fun scanApps(): List<TvApp> {
         val pm = packageManager
-        val results = LinkedHashMap<String, TvApp>()
+        val found = LinkedHashMap<String, TvApp>()
         for (category in listOf(Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER)) {
             val request = Intent(Intent.ACTION_MAIN).addCategory(category)
             @Suppress("DEPRECATION")
             val matches: List<ResolveInfo> = pm.queryIntentActivities(request, 0)
-            for (match in matches) {
-                val act = match.activityInfo ?: continue
-                if (act.packageName == packageName || results.containsKey(act.packageName)) continue
-                val title = try { match.loadLabel(pm).toString() } catch (_: Exception) { act.packageName }
-                val picture = try { match.loadIcon(pm) } catch (_: Exception) { null }
-                results[act.packageName] = TvApp(
-                    title, act.packageName, ComponentName(act.packageName, act.name), picture
-                )
+            for (candidate in matches) {
+                val info = candidate.activityInfo ?: continue
+                val pkg = info.packageName
+                if (pkg == packageName || found.containsKey(pkg)) continue
+                val name = try { candidate.loadLabel(pm).toString() } catch (_: Exception) { pkg }
+                val icon = try { candidate.loadIcon(pm) } catch (_: Exception) { null }
+                found[pkg] = TvApp(name, pkg, ComponentName(pkg, info.name), icon)
             }
         }
         val collator = Collator.getInstance(locale)
-        return results.values.sortedWith(Comparator { a, b -> collator.compare(a.name, b.name) })
+        return found.values.sortedWith(Comparator { a, b -> collator.compare(a.name, b.name) })
     }
 
     private fun favorites(): MutableList<String> {
         val saved = prefs.getString("favorites", null)
-        if (saved != null) return saved.split('|').filter { it.isNotEmpty() }.distinct().toMutableList()
-        val selected = mutableListOf<String>()
-        for (id in listOf("com.google.android.youtube.tv", "com.netflix.ninja",
+        if (saved != null) return saved.split('|').filter { it.isNotBlank() }.distinct().toMutableList()
+        val chosen = mutableListOf<String>()
+        for (pkg in listOf("com.google.android.youtube.tv", "com.netflix.ninja",
             "com.amazon.amazonvideo.livingroom", "com.spotify.tv.android")) {
-            if (apps.any { it.packageId == id }) selected.add(id)
+            if (apps.any { it.packageId == pkg }) chosen.add(pkg)
         }
         for (app in apps) {
-            if (selected.size >= 5) break
-            if (app.packageId !in selected) selected.add(app.packageId)
+            if (chosen.size >= 5) break
+            if (app.packageId !in chosen) chosen.add(app.packageId)
         }
-        prefs.edit().putString("favorites", selected.joinToString("|")).apply()
-        return selected
+        prefs.edit().putString("favorites", chosen.joinToString("|")).apply()
+        return chosen
     }
 
     private fun toggleFavorite(app: TvApp) {
-        val selected = favorites()
-        val added = if (app.packageId in selected) { selected.remove(app.packageId); false }
-            else { selected.add(app.packageId); true }
-        prefs.edit().putString("favorites", selected.joinToString("|")).apply()
-        Toast.makeText(this, if (added) "Adicionado aos favoritos" else "Removido dos favoritos",
-            Toast.LENGTH_SHORT).show()
-        populate()
-    }
-
-    private fun heading(title: String, info: String): LinearLayout {
-        val row = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-        row.addView(label(title, 20f, light, true), LinearLayout.LayoutParams(0, -2, 1f))
-        row.addView(label(info, 11f, muted))
-        return row
-    }
-
-    private fun focused(tile: View) {
-        tile.setOnFocusChangeListener { view, hasFocus ->
-            view.background = if (hasFocus) shape(Color.rgb(32, 65, 79), mint) else shape()
-            view.animate().scaleX(if (hasFocus) 1.035f else 1f)
-                .scaleY(if (hasFocus) 1.035f else 1f).setDuration(80L).start()
-            view.elevation = if (hasFocus) dp(9).toFloat() else 0f
+        val chosen = favorites()
+        val added = if (chosen.remove(app.packageId)) false else {
+            chosen.add(app.packageId)
+            true
         }
-    }
-
-    private fun appTile(app: TvApp, large: Boolean): View {
-        val tile = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            background = shape()
-            isFocusable = true
-            clipChildren = false
-            setPadding(dp(8), dp(6), dp(8), dp(6))
-            contentDescription = app.name
-        }
-        val icon = ImageView(this).apply {
-            setImageDrawable(app.icon)
-            scaleType = ImageView.ScaleType.FIT_CENTER
-        }
-        val size = if (large) 56 else 41
-        tile.addView(icon, lp(dp(size), dp(size), 0, 0, 0, 7))
-        tile.addView(label(app.name, if (large) 13f else 12f, light, true).apply {
-            gravity = Gravity.CENTER
-            maxLines = 1
-            ellipsize = TextUtils.TruncateAt.END
-        }, lp(-1, -2))
-        tile.setOnClickListener { launch(app) }
-        tile.setOnLongClickListener { toggleFavorite(app); true }
-        focused(tile)
-        return tile
-    }
-
-    private fun action(title: String, mark: String, invoke: () -> Unit): View {
-        val tile = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            background = shape()
-            setPadding(dp(14), 0, dp(8), 0)
-            isFocusable = true
-            contentDescription = title
-        }
-        tile.addView(label(mark, 22f, mint, true), lp(dp(32), -2))
-        tile.addView(label(title, 14f, light, true))
-        tile.setOnClickListener { invoke() }
-        focused(tile)
-        return tile
-    }
-
-    private fun populate() {
-        val column = body ?: return
-        while (column.childCount > 2) column.removeViewAt(2)
-        column.addView(heading("Favoritos", "Segure OK para editar"), lp(-1, -2, 0, 0, 0, 12))
-        val strip = HorizontalScrollView(this).apply {
-            isHorizontalScrollBarEnabled = false
-            clipToPadding = false
-        }
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            clipChildren = false
-            setPadding(dp(4), dp(3), dp(9), dp(3))
-        }
-        strip.addView(row)
-        column.addView(strip, lp(-1, dp(128), 0, 0, 0, 13))
-        val selected = favorites().mapNotNull { id -> apps.firstOrNull { it.packageId == id } }
-        for (app in selected) row.addView(appTile(app, true), lp(dp(145), dp(115), 0, 0, 12))
-        if (selected.isEmpty()) row.addView(label("Segure OK em algum aplicativo abaixo para favoritar.", 14f, muted))
-
-        val shortcuts = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; clipChildren = false }
-        val quick = listOf(
-            action("TV / Canais", "◉") { openTv() },
-            action("Configurações", "⚙") { openSettings() },
-            action("Atualizar apps", "↻") { refresh() }
-        )
-        for (shortcut in quick) shortcuts.addView(shortcut,
-            LinearLayout.LayoutParams(0, dp(61), 1f).apply { rightMargin = dp(12) })
-        column.addView(shortcuts, lp(-1, dp(72), 0, 0, 0, 11))
-        column.addView(heading("Todos os aplicativos", "${apps.size} encontrados"), lp(-1, -2, 0, 0, 0, 12))
-
-        if (apps.isEmpty()) {
-            column.addView(label("Nenhum aplicativo visível encontrado.", 14f, muted))
-            shortcuts.post { quick.first().requestFocus() }
-            return
-        }
-        var firstApp: View? = null
-        for (group in apps.chunked(4)) {
-            val line = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; clipChildren = false }
-            for (app in group) {
-                val tile = appTile(app, false)
-                if (firstApp == null) firstApp = tile
-                line.addView(tile, LinearLayout.LayoutParams(0, dp(92), 1f).apply { rightMargin = dp(12) })
-            }
-            repeat(4 - group.size) {
-                line.addView(View(this), LinearLayout.LayoutParams(0, dp(92), 1f).apply { rightMargin = dp(12) })
-            }
-            column.addView(line, lp(-1, dp(103)))
-        }
-        val initial: View? = if (selected.isNotEmpty()) row.getChildAt(0) else firstApp
-        initial?.post { if (!isFinishing) initial.requestFocus() }
+        prefs.edit().putString("favorites", chosen.joinToString("|")).apply()
+        Toast.makeText(this,
+            if (added) "Adicionado aos favoritos" else "Removido dos favoritos",
+            Toast.LENGTH_SHORT
+        ).show()
+        render()
     }
 
     private fun launch(app: TvApp) {
@@ -350,23 +478,30 @@ class MainActivity : Activity() {
                 }
             startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         } catch (_: Exception) {
-            Toast.makeText(this, "Não foi possível abrir ${app.name}.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Não foi possível abrir " + app.name, Toast.LENGTH_LONG).show()
         }
     }
 
     private fun openTv() {
-        val preferred = listOf("com.google.android.tv", "com.tcl.tv",
+        val packages = listOf("com.google.android.tv", "com.tcl.tv",
             "com.tcl.live", "com.mediatek.wwtv.tvcenter")
-        val target = preferred.firstNotNullOfOrNull { id -> apps.firstOrNull { it.packageId == id } }
-            ?: apps.firstOrNull { it.name.equals("Live TV", true) || it.name.equals("TV", true) ||
-                it.name.equals("Canais", true) || it.name.equals("Televisão", true) }
-        if (target != null) launch(target)
-        else Toast.makeText(this, "Use INPUT/SOURCE para alternar TV e HDMI.", Toast.LENGTH_LONG).show()
+        val tv = packages.firstNotNullOfOrNull { pkg ->
+            apps.firstOrNull { it.packageId == pkg }
+        } ?: apps.firstOrNull {
+            it.name.equals("Live TV", true) ||
+                it.name.equals("TV", true) ||
+                it.name.equals("Canais", true) ||
+                it.name.equals("Televisão", true)
+        }
+        if (tv != null) launch(tv) else Toast.makeText(
+            this, "Use INPUT/SOURCE para acessar TV e HDMI.", Toast.LENGTH_LONG
+        ).show()
     }
 
     private fun openSettings() {
         try {
-            startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            startActivity(Intent(Settings.ACTION_SETTINGS)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         } catch (_: Exception) {
             Toast.makeText(this, "Configurações indisponíveis.", Toast.LENGTH_LONG).show()
         }
