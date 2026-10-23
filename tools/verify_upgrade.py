@@ -65,5 +65,5 @@ report = {"version": version["version_name"], "installed_code": version["version
     "internal_upgrade_code": version["upgrade_probe_code"], "update_result": "Success",
     "home_preserved": True, "preference_preserved": True,
     "certificate_sha256": (root / "signing/certificate.sha256").read_text().strip()}
-(qa / "TCL-Light-0.7.0-verificacao.json").write_text(json.dumps(report, indent=2) + "\n")
+(qa / ("TCL-Light-" + version["version_name"] + "-verificacao.json")).write_text(json.dumps(report, indent=2) + "\n")
 print(json.dumps(report, indent=2))

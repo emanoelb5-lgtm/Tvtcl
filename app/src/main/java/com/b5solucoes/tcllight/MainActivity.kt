@@ -394,7 +394,7 @@ class MainActivity : Activity() {
             card.background = ui.surface(Color.argb(65, 135, 225, 207), 14, ui.accent)
         }
         card.setOnClickListener { open(app) }
-        card.setOnLongClickListener { showAppMenu(app, if (large) "top" else "grid"); true }
+        card.setOnLongClickListener { card.requestFocus(); showAppMenu(app, if (large) "top" else "grid"); true }
         return card
     }
 

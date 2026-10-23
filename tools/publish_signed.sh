@@ -6,11 +6,11 @@ mkdir -p dist/publish
 cp "dist/signed/TCL-Light-${version}.apk" dist/publish/
 cp "dist/signed/TCL-Light-${version}.apk" dist/publish/TCL-Light-beta.apk
 cp signing/tcl-light-release.pem dist/publish/TCL-Light-certificado.pem
-cp dist/upgrade-qa/TCL-Light-0.7.0-verificacao.json dist/publish/
+cp "dist/upgrade-qa/TCL-Light-${version}-verificacao.json" dist/publish/
 if ! gh release view "$tag" > /dev/null 2>&1; then
   gh release create "$tag" --title "TCL Light ${version}" --prerelease --notes-file RELEASE_NOTES.md
 fi
-gh release upload "$tag" "dist/publish/TCL-Light-${version}.apk" dist/publish/TCL-Light-certificado.pem dist/publish/TCL-Light-0.7.0-verificacao.json --clobber
+gh release upload "$tag" "dist/publish/TCL-Light-${version}.apk" dist/publish/TCL-Light-certificado.pem "dist/publish/TCL-Light-${version}-verificacao.json" --clobber
 if ! gh release view beta > /dev/null 2>&1; then
   gh release create beta --title "TCL Light ${version}" --prerelease --notes-file RELEASE_NOTES.md
 fi

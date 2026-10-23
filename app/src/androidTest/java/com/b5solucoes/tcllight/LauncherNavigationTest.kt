@@ -137,6 +137,7 @@ class LauncherNavigationTest {
             onUi { find(lane + ":" + id)!!.performLongClick() }
             click("app:right")
             await { laneOrder(lane).indexOf(id) == 1 }
+            await { find(lane + ":" + id)?.hasFocus() == true }
             key(KeyEvent.KEYCODE_DPAD_RIGHT)
             assertEquals(2, laneOrder(lane).indexOf(id))
             repeat(8) { key(KeyEvent.KEYCODE_DPAD_LEFT); key(KeyEvent.KEYCODE_DPAD_RIGHT) }
