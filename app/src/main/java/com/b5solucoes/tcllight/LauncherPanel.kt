@@ -28,8 +28,9 @@ internal class LauncherPanel(private val ui: TvStyle, title: String, subtitle: S
         orientation = LinearLayout.VERTICAL
         setPadding(ui.dp(24),ui.dp(24),ui.dp(24),ui.dp(18))
         background = ui.surface(Color.rgb(13,22,33), 24, Color.argb(32,210,231,246))
-        clipChildren = false
-        clipToPadding = false
+        clipChildren = true
+        clipToPadding = true
+        clipToOutline = true
     }
 
     init {
@@ -68,6 +69,7 @@ internal class LauncherPanel(private val ui: TvStyle, title: String, subtitle: S
             overScrollMode = View.OVER_SCROLL_NEVER
             clipChildren = true
             clipToPadding = true
+            setPadding(0,ui.dp(2),0,ui.dp(4))
             isFillViewport = false
         }
         scroll.addView(content)
