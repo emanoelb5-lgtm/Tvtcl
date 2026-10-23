@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Exercise a real PackageManager update and retain Home choice plus an actual UI preference."""
+import atexit
 import json
 from pathlib import Path
 import re
@@ -19,6 +20,21 @@ def adb(*args):
 def shell(*args):
     return adb("shell", *args)
 
+def diagnostics():
+    for name, command in [("runtime.txt", ("logcat", "-d", "-s", "AndroidRuntime:E")),
+        ("window.txt", ("dumpsys", "window", "windows")),
+        ("activities.txt", ("dumpsys", "activity", "activities"))]:
+        try: (qa / name).write_text(shell(*command))
+        except Exception: pass
+    try:
+        shell("uiautomator", "dump", "/sdcard/tcl-upgrade-final.xml")
+        (qa / "final.xml").write_text(shell("cat", "/sdcard/tcl-upgrade-final.xml"))
+        shell("screencap", "-p", "/sdcard/tcl-upgrade-final.png")
+        adb("pull", "/sdcard/tcl-upgrade-final.png", str(qa / "final.png"))
+    except Exception: pass
+
+atexit.register(diagnostics)
+
 def snapshot():
     shell("uiautomator", "dump", "/sdcard/tcl-upgrade.xml")
     return ET.fromstring(shell("cat", "/sdcard/tcl-upgrade.xml"))
@@ -33,8 +49,14 @@ def eco_node():
     raise RuntimeError("O cartão Modo leve não apareceu na central")
 
 def open_home():
-    shell("am", "start", "-a", "android.intent.action.MAIN", "-c", "android.intent.category.HOME")
-    time.sleep(.8)
+    result = shell("am", "start", "-W", "-a", "android.intent.action.MAIN", "-c", "android.intent.category.HOME")
+    (qa / "home-launch.txt").write_text(result)
+    for _ in range(12):
+        tree = snapshot()
+        if any(n.get("package") == pkg and n.get("text") == "Garrafão do Norte" for n in tree.iter("node")):
+            return
+        time.sleep(.5)
+    raise RuntimeError("A janela da tela inicial não ficou pronta")
 
 def resolved_home():
     return shell("cmd", "package", "resolve-activity", "--brief", "-a", "android.intent.action.MAIN",
