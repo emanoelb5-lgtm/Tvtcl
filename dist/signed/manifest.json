@@ -1,0 +1,12 @@
+{
+  "version_name": "0.7.0",
+  "version_code": 7,
+  "upgrade_probe_code": 8,
+  "package": "com.b5solucoes.tcllight",
+  "source_commit": "492161bfc782d052fa9ff491d4fd161ef6dcd881",
+  "certificate_sha256": "21e8b079624ca39fcb84817f2a711c46e474d2ccdb65f6e629e26fe153fdb688",
+  "files": {
+    "TCL-Light-0.7.0.apk": "11c146d64e8031d3d29e737166e901f5b1ae4ee04d09883ff32eb7bc160f218a",
+    "upgrade-probe.apk": "b6217834c73c300fe20342e89ebb7493de336ec7c3fa35edb0ae2953a2b07cdc"
+  }
+}
