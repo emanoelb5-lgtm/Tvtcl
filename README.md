@@ -1,30 +1,24 @@
-# TCL Light — Android TV minimalista
+# TCL Light — v0.4.0 para Android TV
 
-**Versão 0.3.0** · App nativo Kotlin para a TCL 40S6500FS e Android TV 6 ou superior.
+Launcher Kotlin nativo, sem anúncios, login, rede externa ou imagens remotas.
 
-## Experiência
+### Nova experiência
+- **Aplicativos**: exibe aplicativos instalados pelo usuário (inclusive gerenciadores de arquivos, players e utilitários) e aplicativos de mídia/streaming pré-instalados. Oculta o restante dos apps de sistema, Configurações e launchers.
+- **Mais utilizados**: primeira linha ordenada pelo número de vezes que cada app foi aberto a partir deste launcher (desempate pelo acesso recente). Atualiza quando você retorna à tela inicial. Não lê a atividade privada de outros aplicativos.
+- **Central superior**: status de conexão (Wi-Fi, Ethernet ou sem rede), quantidade de entradas de controle/periféricos de entrada detectadas, TV, seleção de tela inicial padrão, atualização e Configurações. Não lê SSID, nome de Bluetooth ou dados pessoais.
+- **Papel de parede**: três paisagens artísticas locais desenhadas pelo Android, alternadas a cada 45 segundos com transição suave. Não usa fotos externas nem vídeo contínuo.
+- **Sem banner ou slogan** sobreposto ao fundo.
+- **Launcher de verdade**: já responde à categoria HOME. O botão ⌂ abre a solicitação do papel de tela inicial no Android 10+ ou a tela de apps Home em versões anteriores. A TCL pode restringir essa escolha. Não desative o launcher original; sempre mantenha o caminho de retorno.
 
-- Tela inicial inspirada na organização do Google TV, mas com design próprio, sem menus de propaganda ou carregamento pela internet.
-- Fundo original abstrato e cinematográfico, desenhado pelo Android Canvas, sem imagens pesadas nem reprodução em segundo plano.
-- Cabeçalho simples com relógio, data, TV, atualizar e engrenagem das configurações.
-- Configurações **não aparecem como aplicativo**.
-- **Somente apps de streaming/mídia instalados**: apps de vídeo, TV, IPTV, áudio e música identificados pelos nomes, pacotes ou categoria de mídia Android. Nenhum cartão para serviços ausentes.
-- Favoritos preservados de versões anteriores, quando continuam sendo serviços de mídia instalados. Segure OK em um app para incluir/remover.
-- Navegação pelo controle remoto: setas, OK, pressionar OK, MENU (Configurações), voltar.
-- Offline, sem permissões sensíveis, rastreamento ou anúncios.
+### Instalação
+- APK beta: [Releases](../../releases/tag/beta). Mesmo pacote `com.b5solucoes.tcllight`, `versionCode=4`; instalação sobre versão anterior depende de assinatura compatível.
+- A execução [Actions](../../actions) gera `TCL-Light-beta.apk` e publica em Releases.
+- Assinatura **debug** permanece guardada em cache GitHub; pode expirar e não garante atualizações indefinidas. Para lançamento estável, configurar chave de assinatura de release preservada como segredo.
+- A atividade HOME abre automaticamente após seleção apenas em versões/firmwares que permitam trocar a tela inicial por aplicativos de terceiros.
 
-## APK
-
-O [GitHub Actions](../../actions) gera o APK e publica automaticamente em [Releases → Beta](../../releases/tag/beta) no push para `main`. O app usa o mesmo `applicationId` da versão anterior e `versionCode=3`. A assinatura permanece no mecanismo de cache da chave de debug atual; o Android só instalará sobre a versão antiga se a assinatura for a mesma. Para atualizações definitivas, adotar uma assinatura de release persistente em segredo privado.
-
-## Compatibilidade e limites
-
-- A classificação de apps de mídia usa um filtro conservador. Apps de streaming muito novos, com nomes/pacotes incomuns e categoria Android não definida podem não ser reconhecidos. Nenhum aplicativo é instalado ou criado artificialmente.
-- Pressionar **TV** inicia um app de TV já instalado quando identificável. HDMI continua acessível pela tecla física INPUT/SOURCE do controle.
-- Não desative o launcher original da TCL. Configurar um app como Home depende das restrições do firmware.
-- Mudar launcher não acelera a decodificação ou o streaming dos outros aplicativos.
-- Build de teste: `targetSdk=28`, não preparado para Play Store.
-
-## Build local
-
-Android SDK 35, Gradle 8.10.2, JDK 17. Executar `gradle :app:assembleDebug` ou baixar APK em Releases.
+### Limitações
+- Mostra somente apps com entrada de launcher; serviços sem Activity lançável não entram.
+- 'Mais utilizados' mede aberturas pela própria tela inicial, não uso em minutos nem aberturas externas.
+- A central mostra dispositivos de entrada detectados pelo Android (não necessariamente todo periférico Bluetooth emparelhado).
+- O atalho TV exige um app TV detectável; HDMI continua no botão INPUT/SOURCE.
+- `minSdk=23`, `targetSdk=28` apenas para compatibilidade com a TCL antiga, não adequado à publicação atual na Play Store.

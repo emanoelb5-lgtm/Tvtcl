@@ -2,7 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
-    <!-- Launcher completamente offline: não requer INTERNET nem permissões sensíveis. -->
+    <!-- Apenas consulta de estado da rede. Sem localização ou Internet. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <application
         android:label="TCL Light"
         android:banner="@drawable/tv_banner"

@@ -1,6 +1,12 @@
 package com.b5solucoes.tcllight
 
 import android.app.Activity
+import android.app.role.RoleManager
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.net.ConnectivityManager
+import android.os.Build
+import android.view.InputDevice
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -59,7 +65,14 @@ class MainActivity : Activity() {
     private val prefs by lazy { getSharedPreferences("launcher", MODE_PRIVATE) }
     private var timeLabel: TextView? = null
     private var dateLabel: TextView? = null
-    private var greeting: TextView? = null
+    private var networkLabel: TextView? = null
+    private var deviceLabel: TextView? = null
+    private var wallpaperMain: AtmosphericBackground? = null
+    private var wallpaperNext: AtmosphericBackground? = null
+    private var wallpaperIndex = 0
+    private var usageDirty = false
+    private var navWifi: View? = null
+    private var navDevices: View? = null
     private var contents: LinearLayout? = null
     private var listScroll: ScrollView? = null
     private var mediaApps: List<TvApp> = emptyList()
@@ -67,6 +80,25 @@ class MainActivity : Activity() {
     private var lastScan = 0L
     private var initialRender = true
     private var lastFocus = ""
+    private val cycleWallpaper = object : Runnable {
+        override fun run() {
+            val front = wallpaperNext ?: return
+            val back = wallpaperMain ?: return
+            val next = (wallpaperIndex + 1) % 3
+            front.scene = next
+            front.alpha = 0f
+            front.animate().alpha(1f).setDuration(1100L)
+                .setListener(object : AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: Animator) {
+                        back.scene = next
+                        wallpaperIndex = next
+                        front.alpha = 0f
+                        front.animate().setListener(null)
+                    }
+                }).start()
+            handler.postDelayed(this, 45000L)
+        }
+    }
 
     private val clockUpdate = object : Runnable {
         override fun run() {
@@ -74,11 +106,7 @@ class MainActivity : Activity() {
             timeLabel?.text = SimpleDateFormat("HH:mm", locale).format(now)
             dateLabel?.text = SimpleDateFormat("EEE, d 'de' MMM", locale).format(now)
                 .replaceFirstChar { it.titlecase(locale) }
-            greeting?.text = when (Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) {
-                in 5..11 -> "Bom dia."
-                in 12..17 -> "Boa tarde."
-                else -> "Boa noite."
-            }
+            refreshStatus()
             handler.postDelayed(this, 60000L)
         }
     }
@@ -98,11 +126,23 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        refreshStatus()
+        handler.removeCallbacks(cycleWallpaper)
+        handler.postDelayed(cycleWallpaper, 45000L)
         if (System.currentTimeMillis() - lastScan > 90000L) refresh()
+        else if (usageDirty) { usageDirty = false; render() }
+    }
+
+    override fun onPause() {
+        handler.removeCallbacks(cycleWallpaper)
+        wallpaperNext?.animate()?.cancel()
+        wallpaperNext?.alpha = 0f
+        super.onPause()
     }
 
     override fun onDestroy() {
         handler.removeCallbacks(clockUpdate)
+        handler.removeCallbacks(cycleWallpaper)
         super.onDestroy()
     }
 
@@ -134,8 +174,10 @@ class MainActivity : Activity() {
 
     private fun buildInterface() {
         val frame = FrameLayout(this)
-        frame.addView(AtmosphericBackground(this),
-            FrameLayout.LayoutParams(-1, -1))
+        wallpaperMain = AtmosphericBackground(this)
+        wallpaperNext = AtmosphericBackground(this).apply { alpha = 0f }
+        frame.addView(wallpaperMain, FrameLayout.LayoutParams(-1, -1))
+        frame.addView(wallpaperNext, FrameLayout.LayoutParams(-1, -1))
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             clipChildren = false
@@ -152,13 +194,20 @@ class MainActivity : Activity() {
         root.addView(nav, params(-1, dp(65), 50, 10, 50))
         nav.addView(words("Início", 19f, foreground, true),
             LinearLayout.LayoutParams(0, -2, 1f))
-        dateLabel = words("", 11f, muted)
-        nav.addView(dateLabel, params(-2, -2, 0, 0, 20))
-        timeLabel = words("--:--", 22f, foreground, true)
-        nav.addView(timeLabel, params(-2, -2, 0, 0, 20))
-        nav.addView(navButton("TV", "◉") { openTv() }, params(dp(76), dp(39), 0, 0, 9))
-        nav.addView(navButton("Atualizar", "↻") { refresh() }, params(dp(45), dp(39), 0, 0, 9))
-        nav.addView(navButton("Configurações", "⚙") { openSettings() }, params(dp(45), dp(39)))
+        dateLabel = words("", 10.5f, muted)
+        nav.addView(dateLabel, params(-2, -2, 0, 0, 13))
+        timeLabel = words("--:--", 21f, foreground, true)
+        nav.addView(timeLabel, params(-2, -2, 0, 0, 13))
+        networkLabel = words("Rede", 11f, foreground)
+        navWifi = statusButton(networkLabel!!, "Wi-Fi") { openWifiSettings() }
+        nav.addView(navWifi, params(dp(104), dp(39), 0, 0, 8))
+        deviceLabel = words("Controle", 11f, foreground)
+        navDevices = statusButton(deviceLabel!!, "Periféricos") { openPeripheralSettings() }
+        nav.addView(navDevices, params(dp(112), dp(39), 0, 0, 8))
+        nav.addView(navButton("TV", "◉") { openTv() }, params(dp(67), dp(39), 0, 0, 8))
+        nav.addView(navButton("Início padrão", "⌂") { setAsDefaultHome() }, params(dp(43), dp(39), 0, 0, 8))
+        nav.addView(navButton("Atualizar", "↻") { refresh() }, params(dp(43), dp(39), 0, 0, 8))
+        nav.addView(navButton("Configurações", "⚙") { openSettings() }, params(dp(43), dp(39)))
 
         val scroll = ScrollView(this).apply {
             isVerticalScrollBarEnabled = false
@@ -179,30 +228,14 @@ class MainActivity : Activity() {
         contents = column
         scroll.addView(column)
 
-        val hero = FrameLayout(this).apply {
-            clipChildren = true
-            clipToOutline = true
-            background = rounded(Color.rgb(11, 30, 43), Color.argb(65, 161, 206, 218), 22)
-        }
-        column.addView(hero, params(-1, dp(164), 0, 0, 8, 26))
-        hero.addView(HeroArtwork(this), FrameLayout.LayoutParams(-1, -1))
-        val heroTexts = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(30), dp(14), dp(20), dp(16))
-        }
-        hero.addView(heroTexts, FrameLayout.LayoutParams(-1, -1))
-        greeting = words("", 13f, aqua, true)
-        heroTexts.addView(greeting, params(-1, -2, 0, 0, 0, 8))
-        heroTexts.addView(words("O que vamos assistir?", 29f, foreground, true),
-            params(-1, -2, 0, 0, 0, 9))
-        heroTexts.addView(words("Seus streamings, em um só lugar.", 13f, muted))
+        // Respiro cinematográfico: o wallpaper ocupa a tela, sem banner nem slogan.
+        column.addView(View(this), params(-1, dp(84)))
 
         val footer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        footer.addView(words("OK para abrir   ·   Segure OK para organizar favoritos", 10f, muted),
+        footer.addView(words("Selecione um aplicativo para aumentar sua posição nos mais usados", 10f, muted),
             LinearLayout.LayoutParams(0, -2, 1f))
         footer.addView(words("SIMPLES  ·  SEM ANÚNCIOS", 10f, quiet))
         root.addView(footer, params(-1, dp(34), 50, 0, 50, 6))
@@ -219,6 +252,82 @@ class MainActivity : Activity() {
         }
         focusStyle(view, "nav:" + label, 12)
         return view
+    }
+
+    private fun statusButton(status: TextView, accessibility: String, action: () -> Unit): View {
+        val holder = LinearLayout(this).apply {
+            gravity = Gravity.CENTER
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(7), 0, dp(7), 0)
+            contentDescription = accessibility
+        }
+        status.gravity = Gravity.CENTER
+        status.maxLines = 1
+        status.ellipsize = TextUtils.TruncateAt.END
+        holder.addView(status, params(-1, -2))
+        holder.setOnClickListener { action() }
+        focusStyle(holder, "nav:" + accessibility, 12)
+        return holder
+    }
+
+    private fun refreshStatus() {
+        try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            @Suppress("DEPRECATION")
+            val active = cm.activeNetworkInfo
+            networkLabel?.text = when {
+                active?.isConnected != true -> "◌  Sem rede"
+                active.type == ConnectivityManager.TYPE_WIFI -> "◉  Wi-Fi"
+                active.type == ConnectivityManager.TYPE_ETHERNET -> "◉  Cabo"
+                else -> "◉  Rede"
+            }
+        } catch (_: Exception) { networkLabel?.text = "◌  Rede" }
+        try {
+            val inputs = InputDevice.getDeviceIds().mapNotNull { InputDevice.getDevice(it) }
+                .count { d ->
+                    !d.isVirtual && (
+                        d.supportsSource(InputDevice.SOURCE_GAMEPAD) ||
+                        d.supportsSource(InputDevice.SOURCE_DPAD) ||
+                        d.supportsSource(InputDevice.SOURCE_KEYBOARD) ||
+                        d.supportsSource(InputDevice.SOURCE_MOUSE)
+                    )
+                }
+            deviceLabel?.text = if (inputs > 0) "⌘  $inputs entrada" +
+                (if (inputs > 1) "s" else "") else "⌘  Controle"
+        } catch (_: Exception) { deviceLabel?.text = "⌘  Controle" }
+    }
+
+    private fun openWifiSettings() {
+        try { startActivity(Intent(Settings.ACTION_WIFI_SETTINGS)) }
+        catch (_: Exception) { openSettings() }
+    }
+
+    private fun openPeripheralSettings() {
+        try { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
+        catch (_: Exception) { openSettings() }
+    }
+
+    /** Android TV pode bloquear o seletor padrão. Nunca desativa o launcher original. */
+    private fun setAsDefaultHome() {
+        if (Build.VERSION.SDK_INT >= 29) {
+            try {
+                val roles = getSystemService(RoleManager::class.java)
+                if (roles != null && roles.isRoleAvailable(RoleManager.ROLE_HOME)) {
+                    if (roles.isRoleHeld(RoleManager.ROLE_HOME)) {
+                        Toast.makeText(this, "Esta já é sua tela inicial.", Toast.LENGTH_SHORT).show()
+                    } else {
+                        startActivity(roles.createRequestRoleIntent(RoleManager.ROLE_HOME))
+                    }
+                    return
+                }
+            } catch (_: Exception) { /* Usa opção clássica abaixo. */ }
+        }
+        try { startActivity(Intent(Settings.ACTION_HOME_SETTINGS)) }
+        catch (_: Exception) {
+            Toast.makeText(this,
+                "Esta versão do Android TV não oferece alteração de launcher nas Configurações.",
+                Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun focusStyle(view: View, key: String, radius: Int = 20) {
@@ -268,7 +377,6 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
         }, params(-1, -2))
         card.setOnClickListener { open(app) }
-        card.setOnLongClickListener { toggleFavorite(app); true }
         focusStyle(card, "app:" + app.packageName)
         return card
     }
@@ -278,7 +386,7 @@ class MainActivity : Activity() {
         val keepFocus = (currentFocus?.tag as? String) ?: lastFocus
         column.removeViews(1, column.childCount - 1)
 
-        column.addView(section("Favoritos", "Segure OK para editar"),
+        column.addView(section("Mais utilizados", "Ordenados pelos seus acessos"),
             params(-1, -2, 0, 0, 8, 16))
         val favoriteStrip = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
@@ -295,8 +403,7 @@ class MainActivity : Activity() {
         favoriteStrip.addView(favoriteLine)
         column.addView(favoriteStrip, params(-1, dp(130), 0, 0, 0, 21))
 
-        val media = mediaApps.associateBy { it.packageName }
-        val selected = favorites().mapNotNull { media[it] }
+        val selected = rankedApps().take(7)
         val available = LinkedHashMap<String, View>()
         var first: View? = null
         for (app in selected) {
@@ -307,16 +414,16 @@ class MainActivity : Activity() {
         }
         if (selected.isEmpty()) {
             favoriteLine.addView(
-                words("Segure OK em um streaming para adicioná-lo aos favoritos.", 13f, muted),
+                words("Seus aplicativos mais acessados aparecerão aqui.", 13f, muted),
                 params(-2, -2, 9, 28))
         }
 
-        column.addView(section("Seus streamings", mediaApps.size.toString() + " instalados"),
+        column.addView(section("Aplicativos", mediaApps.size.toString() + " disponíveis"),
             params(-1, -2, 0, 0, 8, 16))
 
         if (mediaApps.isEmpty()) {
             column.addView(words(
-                "Não encontramos aplicativos de streaming na TV. Instale um serviço de mídia e selecione ↻.",
+                "Nenhum aplicativo de usuário ou streaming detectado. Use ↻ para atualizar.",
                 13f, muted
             ), params(-1, dp(60), 0, 6, 0, 5))
         } else {
@@ -367,7 +474,7 @@ class MainActivity : Activity() {
         if (scanning) return
         scanning = true
         thread(name = "installed-tv-media") {
-            val installed = try { detectStreamingApps() } catch (_: Exception) { emptyList() }
+            val installed = try { detectInstalledApps() } catch (_: Exception) { emptyList() }
             runOnUiThread {
                 scanning = false
                 if (isFinishing || isDestroyed) return@runOnUiThread
@@ -379,13 +486,11 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Estratégia de mínimo privilégio:
-     * - consulta apenas Activities lançáveis que já estão instaladas nesta TV
-     * - remove launchers, Ajustes e ferramentas técnicas
-     * - aceita apps de mídia conhecidos ou apps cuja categoria Android seja vídeo/áudio
-     * Não cria cards fictícios nem depende de API de terceiros.
+     * Mostrar todos os aplicativos instalados pelo usuário (incluindo gerenciadores de
+     * arquivos), além dos streamings que vieram de fábrica. Ocultar demais apps de sistema.
+     * Apenas activities realmente lançáveis entram na grade.
      */
-    private fun detectStreamingApps(): List<TvApp> {
+    private fun detectInstalledApps(): List<TvApp> {
         val manager = packageManager
         val found = LinkedHashMap<String, TvApp>()
         for (cat in listOf(Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER)) {
@@ -398,18 +503,33 @@ class MainActivity : Activity() {
                 if (pkg == packageName || found.containsKey(pkg)) continue
                 val name = try { entry.loadLabel(manager).toString() }
                     catch (_: Exception) { pkg }
-                val category = try {
+                val info = try {
                     @Suppress("DEPRECATION")
-                    val info = manager.getApplicationInfo(pkg, 0)
-                    info.category
-                } catch (_: Exception) { ApplicationInfo.CATEGORY_UNDEFINED }
-                if (!isStreamingApp(pkg, name, category)) continue
+                    manager.getApplicationInfo(pkg, 0)
+                } catch (_: Exception) { continue }
+                val isSystemApp = (info.flags and ApplicationInfo.FLAG_SYSTEM != 0) ||
+                    (info.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP != 0)
+                // Mesmo um app de sistema só aparece se for um streaming/mídia conhecido.
+                if (isSystemApp && !isStreamingApp(pkg, name, info.category)) continue
+                // Home/Configurações mantidos só na central superior.
+                if (isInternalLauncherOrSettings(pkg, name)) continue
                 val icon = try { entry.loadIcon(manager) } catch (_: Exception) { null }
                 found[pkg] = TvApp(name, pkg, ComponentName(pkg, activity.name), icon)
             }
         }
         val comparator = Collator.getInstance(locale)
         return found.values.sortedWith(Comparator { a, b -> comparator.compare(a.name, b.name) })
+    }
+
+    private fun isInternalLauncherOrSettings(pkgRaw: String, labelRaw: String): Boolean {
+        val pkg = pkgRaw.lowercase(Locale.ROOT)
+        val name = labelRaw.lowercase(locale)
+        return pkg == packageName || pkg == "com.android.settings" ||
+            pkg.startsWith("com.android.settings.") ||
+            pkg.contains("tvlauncher") || pkg.contains("leanbacklauncher") ||
+            pkg.startsWith("com.tcl.launcher") ||
+            pkg.startsWith("com.google.android.apps.tv.launcher") ||
+            (name.contains("launcher") && pkg.startsWith("com.google.android"))
     }
 
     private fun isStreamingApp(pkgRaw: String, labelRaw: String, category: Int): Boolean {
@@ -470,36 +590,25 @@ class MainActivity : Activity() {
             category == ApplicationInfo.CATEGORY_AUDIO
     }
 
-    private fun favorites(): MutableList<String> {
-        val old = prefs.getString("favorites", null)
-        if (old != null) return old.split('|').filter { it.isNotBlank() }.distinct().toMutableList()
-        val chosen = mutableListOf<String>()
-        val order = listOf("netflix", "youtube", "prime video", "globoplay", "disney", "max")
-        for (word in order) {
-            mediaApps.firstOrNull {
-                it.name.lowercase(locale).contains(word) && it.packageName !in chosen
-            }?.let { chosen.add(it.packageName) }
-            if (chosen.size >= 5) break
-        }
-        for (app in mediaApps) {
-            if (chosen.size >= 5) break
-            if (app.packageName !in chosen) chosen.add(app.packageName)
-        }
-        prefs.edit().putString("favorites", chosen.joinToString("|")).apply()
-        return chosen
-    }
+    /**
+     * Ranking sem permissão Usage Access: conta apenas lançamentos feitos neste launcher.
+     * Reordena ao voltar para Home. Os dados ficam locais no SharedPreferences.
+     */
+    private fun rankedApps(): List<TvApp> = mediaApps.sortedWith(
+        compareByDescending<TvApp> { prefs.getInt("usage.count." + it.packageName, 0) }
+            .thenByDescending { prefs.getLong("usage.time." + it.packageName, 0L) }
+            .thenBy { it.name.lowercase(locale) }
+    )
 
-    private fun toggleFavorite(app: TvApp) {
-        val chosen = favorites()
-        val added = if (chosen.remove(app.packageName)) false else {
-            chosen.add(app.packageName); true
-        }
-        prefs.edit().putString("favorites", chosen.joinToString("|")).apply()
-        Toast.makeText(this,
-            if (added) "Adicionado aos favoritos" else "Removido dos favoritos",
-            Toast.LENGTH_SHORT
-        ).show()
-        render()
+    private fun recordLaunch(app: TvApp) {
+        val id = app.packageName
+        val key = "usage.count." + id
+        val current = prefs.getInt(key, 0)
+        prefs.edit()
+            .putInt(key, if (current == Int.MAX_VALUE) current else current + 1)
+            .putLong("usage.time." + id, System.currentTimeMillis())
+            .apply()
+        usageDirty = true
     }
 
     private fun open(app: TvApp) {
@@ -511,6 +620,7 @@ class MainActivity : Activity() {
                     addCategory(Intent.CATEGORY_LAUNCHER)
                 }
             startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            recordLaunch(app)
         } catch (_: Exception) {
             Toast.makeText(this, "Não foi possível abrir " + app.name, Toast.LENGTH_LONG).show()
         }
@@ -540,73 +650,70 @@ class MainActivity : Activity() {
     }
 }
 
-/** Arte estática em Canvas, sem imagens de internet, vídeos, processamento constante ou loops. */
+/** Três paisagens ilustradas locais e 16:9, alternadas somente a cada 45 s.
+ * Não carrega fotos em rede, não mantém decoder e só redesenha na troca.
+ */
 private class AtmosphericBackground(context: Context) : View(context) {
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    override fun onDraw(c: Canvas) {
-        super.onDraw(c)
-        val w = width.toFloat()
-        val h = height.toFloat()
-        if (w <= 0f || h <= 0f) return
-        paint.shader = LinearGradient(0f, 0f, w, h,
-            intArrayOf(Color.rgb(9, 19, 33), Color.rgb(7, 12, 22), Color.rgb(15, 29, 42)),
-            null, Shader.TileMode.CLAMP)
-        c.drawRect(0f, 0f, w, h, paint)
-        paint.shader = RadialGradient(w * 0.79f, h * 0.31f, w * 0.64f,
-            intArrayOf(Color.argb(105, 10, 109, 135), Color.argb(30, 8, 69, 98),
-                Color.TRANSPARENT),
-            floatArrayOf(0f, .58f, 1f), Shader.TileMode.CLAMP)
-        c.drawRect(0f, 0f, w, h, paint)
-        paint.shader = RadialGradient(w * 0.16f, h * 0.93f, w * 0.64f,
-            intArrayOf(Color.argb(80, 29, 78, 118), Color.argb(21, 34, 70, 106),
-                Color.TRANSPARENT),
-            floatArrayOf(0f, .55f, 1f), Shader.TileMode.CLAMP)
-        c.drawRect(0f, 0f, w, h, paint)
-        paint.shader = null
-        val hills = Path().apply {
-            moveTo(w * .44f, h)
-            cubicTo(w * .56f, h * .66f, w * .74f, h * .61f, w, h * .78f)
-            lineTo(w, h); close()
-        }
-        paint.style = Paint.Style.FILL
-        paint.color = Color.argb(23, 75, 151, 167)
-        c.drawPath(hills, paint)
-    }
-}
-
-/** Orbes suaves à direita do destaque principal: papel de parede cinematográfico desenhado uma vez. */
-private class HeroArtwork(context: Context) : View(context) {
+    var scene: Int = 0
+        set(value) { field = value % 3; invalidate() }
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+
     override fun onDraw(c: Canvas) {
         super.onDraw(c)
         val w = width.toFloat()
         val h = height.toFloat()
         if (w <= 0f || h <= 0f) return
-        p.shader = LinearGradient(0f, 0f, w, h,
-            intArrayOf(Color.rgb(12, 33, 49), Color.rgb(15, 47, 64), Color.rgb(7, 22, 39)),
-            null, Shader.TileMode.CLAMP)
-        c.drawRect(0f, 0f, w, h, p)
-        p.shader = RadialGradient(w * .83f, h * .43f, h * 1.5f,
-            intArrayOf(Color.argb(185, 53, 174, 164),
-                Color.argb(85, 39, 99, 144), Color.TRANSPARENT),
-            floatArrayOf(0f, .5f, 1f), Shader.TileMode.CLAMP)
+        val sky = when (scene) {
+            0 -> intArrayOf(Color.rgb(30, 61, 89), Color.rgb(23, 74, 94), Color.rgb(7, 24, 45))
+            1 -> intArrayOf(Color.rgb(60, 46, 82), Color.rgb(24, 75, 107), Color.rgb(10, 24, 51))
+            else -> intArrayOf(Color.rgb(84, 61, 69), Color.rgb(60, 85, 113), Color.rgb(13, 28, 49))
+        }
+        p.shader = LinearGradient(0f, 0f, w, h, sky, null, Shader.TileMode.CLAMP)
         c.drawRect(0f, 0f, w, h, p)
         p.shader = null
-        p.style = Paint.Style.STROKE
-        p.strokeWidth = h * .024f
-        p.color = Color.argb(75, 171, 238, 226)
-        val path = Path().apply {
-            moveTo(w * .63f, h * 1.15f)
-            cubicTo(w * .78f, h * -.50f, w * .92f, h * -.28f, w * 1.16f, h * .65f)
+
+        val haloX = when (scene) { 0 -> .74f; 1 -> .64f; else -> .84f }
+        val haloY = when (scene) { 0 -> .23f; 1 -> .34f; else -> .20f }
+        p.shader = RadialGradient(w * haloX, h * haloY, h * .54f,
+            intArrayOf(Color.argb(190, 238, 190, 154),
+                Color.argb(100, 152, 163, 191), Color.TRANSPARENT),
+            floatArrayOf(0f, .37f, 1f), Shader.TileMode.CLAMP)
+        c.drawRect(0f, 0f, w, h, p)
+        p.shader = null
+
+        val mountain = Path().apply {
+            moveTo(0f, h * .82f)
+            cubicTo(w * .12f, h * .66f, w * .25f, h * .84f, w * .41f, h * .61f)
+            cubicTo(w * .55f, h * .46f, w * .61f, h * .75f, w * .73f, h * .63f)
+            cubicTo(w * .89f, h * .46f, w * .92f, h * .68f, w, h * .61f)
+            lineTo(w, h); lineTo(0f, h); close()
         }
-        c.drawPath(path, p)
-        p.strokeWidth = h * .010f
-        p.color = Color.argb(50, 234, 252, 238)
-        val other = Path().apply {
-            moveTo(w * .73f, h * 1.10f)
-            cubicTo(w * .84f, h * -.18f, w * .94f, h * -.05f, w * 1.12f, h * .60f)
+        p.color = when (scene) {
+            0 -> Color.rgb(28, 66, 82)
+            1 -> Color.rgb(40, 65, 93)
+            else -> Color.rgb(71, 72, 89)
         }
-        c.drawPath(other, p)
-        p.style = Paint.Style.FILL
+        c.drawPath(mountain, p)
+
+        val foregroundHills = Path().apply {
+            moveTo(0f, h * .88f)
+            cubicTo(w * .22f, h * .78f, w * .29f, h * .95f, w * .46f, h * .83f)
+            cubicTo(w * .70f, h * .66f, w * .81f, h * .92f, w, h * .79f)
+            lineTo(w, h); lineTo(0f, h); close()
+        }
+        p.color = when(scene) {
+            0 -> Color.rgb(12, 40, 56)
+            1 -> Color.rgb(13, 44, 68)
+            else -> Color.rgb(35, 48, 67)
+        }
+        c.drawPath(foregroundHills, p)
+
+        // Escurecimento na área inferior, para manter ícones e textos legíveis.
+        p.shader = LinearGradient(0f, h * .33f, 0f, h,
+            intArrayOf(Color.argb(115, 3, 11, 19), Color.argb(160, 5, 14, 25),
+                Color.argb(232, 4, 11, 19)),
+            null, Shader.TileMode.CLAMP)
+        c.drawRect(0f, h * .33f, w, h, p)
+        p.shader = null
     }
 }
