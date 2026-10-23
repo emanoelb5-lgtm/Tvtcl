@@ -1,0 +1,65 @@
+name: Compilar APK TCL Light
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  android-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Baixar projeto
+        uses: actions/checkout@v4
+
+      - name: Preparar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Preparar Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Instalar Android SDK 35
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+
+      # Mantém a chave debug entre builds quando o cache estiver disponível.
+      # Para distribuição definitiva, configurar uma assinatura release privada.
+      - name: Preservar assinatura de teste
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: tcl-light-debug-keystore-v1
+
+      - name: Preparar Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Compilar APK
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Preparar arquivo para download
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk dist/TCL-Light-beta.apk
+
+      - name: Disponibilizar APK no GitHub Actions
+        uses: actions/upload-artifact@v4
+        with:
+          name: TCL-Light-APK
+          path: dist/TCL-Light-beta.apk
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publicar APK na aba Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view beta > /dev/null 2>&1 || gh release create beta --title 'TCL Light • Beta' --prerelease --notes 'Launcher de teste para Android TV. Instale e teste antes de defini-lo como Home. Não modifica o firmware.'
+          gh release upload beta dist/TCL-Light-beta.apk --clobber
