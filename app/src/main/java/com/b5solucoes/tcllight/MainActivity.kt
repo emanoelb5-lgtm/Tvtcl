@@ -283,7 +283,8 @@ class MainActivity : Activity() {
             }
         } catch (_: Exception) { networkLabel?.text = "◌  Rede" }
         try {
-            val inputs = InputDevice.getDeviceIds().mapNotNull { InputDevice.getDevice(it) }
+            val inputs = InputDevice.getDeviceIds().toList()
+                .mapNotNull { id -> InputDevice.getDevice(id) }
                 .count { d ->
                     !d.isVirtual && (
                         d.supportsSource(InputDevice.SOURCE_GAMEPAD) ||
