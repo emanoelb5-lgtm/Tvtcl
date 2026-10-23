@@ -474,7 +474,9 @@ class MainActivity : Activity() {
 
     /** Only visible cards own a bitmap; offscreen rows return to the bounded cache. */
     private fun refreshVisibleArtwork() {
-        artworkBindings.removeAll { it.card.parent == null }
+        // Grid cards still have a row parent after that whole row is removed.
+        // Release those bindings as well, especially while a user rearranges apps.
+        artworkBindings.removeAll { it.card.rootView !== frame.rootView }
         for(binding in artworkBindings) {
             binding.visible = binding.image.isShown && binding.image.getGlobalVisibleRect(visibleRect)
             if(!binding.visible) {

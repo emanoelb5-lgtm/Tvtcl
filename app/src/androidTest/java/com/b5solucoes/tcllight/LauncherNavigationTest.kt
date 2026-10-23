@@ -139,6 +139,12 @@ class LauncherNavigationTest {
             await { laneOrder(lane).indexOf(id) == 1 }
             key(KeyEvent.KEYCODE_DPAD_RIGHT)
             assertEquals(2, laneOrder(lane).indexOf(id))
+            repeat(8) { key(KeyEvent.KEYCODE_DPAD_LEFT); key(KeyEvent.KEYCODE_DPAD_RIGHT) }
+            await { onUi {
+                val bindings = MainActivity::class.java.getDeclaredField("artworkBindings")
+                    .apply { isAccessible = true }.get(screen) as List<*>
+                bindings.size <= samples.size * 2
+            } }
             key(KeyEvent.KEYCODE_BACK)
             assertEquals(original, laneOrder(lane))
             assertFalse(prefs.contains("order." + lane))
