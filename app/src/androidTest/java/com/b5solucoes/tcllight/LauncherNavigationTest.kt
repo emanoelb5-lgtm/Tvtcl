@@ -162,6 +162,17 @@ class LauncherNavigationTest {
         }
     }
 
+    @Test fun testPinStillHasPriorityAfterManualOrdering() {
+        val prefs = instrumentation.targetContext.getSharedPreferences("launcher", 0)
+        prefs.edit().putString("order.top", AppOrdering.encode(samples.reversed())).commit()
+        seedOrderCatalog()
+        assertEquals(samples.reversed(), laneOrder("top"))
+        onUi { find("grid:" + samples.first())!!.performLongClick() }
+        click("app:pin")
+        await { laneOrder("top").firstOrNull() == samples.first() }
+        assertEquals(samples, laneOrder("grid"))
+    }
+
     @Test fun testVideoInputsPanelDoesNotShowKeyboardOrMouseInventory() {
         key(KeyEvent.KEYCODE_MENU)
         click("action:inputs")

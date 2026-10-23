@@ -755,10 +755,14 @@ class MainActivity : Activity() {
         if (index >= 0 && index < ids.lastIndex) moves.add(PanelAction("app:right","Mover à direita","Reorganizar pelo controle",TvIcon.Kind.RIGHT) { startMoving(app, lane, 1) })
         if (moves.isNotEmpty()) sheet.grid(moves)
         sheet.row(PanelAction("app:pin",if(pin) "Desafixar" else "Fixar nos mais utilizados",
-            if(pin) "Ordenar novamente pelo uso" else "Manter no início da lista",TvIcon.Kind.PIN,pin) {
+            if(pin) "Remover fixação" else "Dar prioridade nos mais utilizados",TvIcon.Kind.PIN,pin) {
             val all = pinnedApps().toMutableSet()
             if(pin) all.remove(app.packageName) else all.add(app.packageName)
-            prefs.edit().putStringSet("pinned_apps",all).apply()
+            val edit = prefs.edit().putStringSet("pinned_apps",all)
+            val manual = AppOrdering.decode(prefs.getString("order.top", null))
+            if (!pin && manual.isNotEmpty()) edit.putString("order.top",
+                AppOrdering.encode(listOf(app.packageName) + manual.filterNot { it == app.packageName }))
+            edit.apply()
             renderApps(); closePanel()
         })
         sheet.row(PanelAction("app:hide","Ocultar da tela inicial","Pode ser restaurado na central",TvIcon.Kind.EYE) {
