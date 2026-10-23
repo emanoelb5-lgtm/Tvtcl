@@ -35,9 +35,9 @@ internal class TvStyle(val context: Context, val economy: () -> Boolean) {
 
     fun states(radius: Int = 14, transparent: Boolean = false) = StateListDrawable().apply {
         addState(intArrayOf(android.R.attr.state_pressed),
-            surface(Color.rgb(49, 78, 81), radius, accent))
+            surface(Color.rgb(49, 78, 81), radius, accent).apply { setStroke(dp(2),accent) })
         addState(intArrayOf(android.R.attr.state_focused),
-            surface(Color.rgb(34, 62, 65), radius, accent))
+            surface(Color.rgb(34, 62, 65), radius, accent).apply { setStroke(dp(2),accent) })
         addState(intArrayOf(), surface(if (transparent) Color.TRANSPARENT
             else Color.argb(204, 22, 32, 46), radius, Color.argb(24, 230, 241, 255)))
     }

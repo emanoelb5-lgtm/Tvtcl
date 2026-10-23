@@ -46,7 +46,9 @@ internal class LauncherPanel(private val ui: TvStyle, title: String, subtitle: S
         })
         val header = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL }
         val titles = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
-        titles.addView(ui.text(title,24f,medium=true))
+        titles.addView(ui.text(title,24f,medium=true).apply {
+            maxLines = 1; ellipsize = TextUtils.TruncateAt.END
+        })
         titles.addView(ui.text(subtitle,11f,ui.muted),LinearLayout.LayoutParams(-1,-2).apply {
             topMargin = ui.dp(7)
         })

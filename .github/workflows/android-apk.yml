@@ -70,16 +70,7 @@ jobs:
           profile: tv_720p
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: |
-            mkdir -p dist/qa
-            collect_qa() {
-              adb pull /sdcard/Android/data/com.b5solucoes.tcllight/files/qa dist/qa/screens || true
-              adb shell dumpsys gfxinfo com.b5solucoes.tcllight > dist/qa/gfxinfo.txt || true
-              adb logcat -d -s AndroidRuntime:E > dist/qa/crashes.txt || true
-            }
-            trap collect_qa EXIT
-            adb shell settings put system system_locales pt-BR
-            gradle :app:connectedDebugAndroidTest --no-daemon --stacktrace
+          script: bash tools/verify_tv.sh
 
       - name: Guardar resultados dos testes
         if: always()
@@ -111,3 +102,4 @@ jobs:
         run: |
           gh release view beta > /dev/null 2>&1 || gh release create beta --title 'TCL Light • Beta' --prerelease --notes 'TCL Light 0.6: nova central lateral, navegação para controle e imagens fora da thread de interface. Instale e teste antes de definir como Home. Não modifica o firmware.'
           gh release upload beta dist/TCL-Light-beta.apk --clobber
+          gh release edit beta --title 'TCL Light 0.6 • Beta' --notes-file RELEASE_NOTES.md
