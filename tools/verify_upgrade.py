@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Exercise a real PackageManager update and retain Home choice plus an actual UI preference."""
+"""Exercise a real PackageManager update, preserve preferences and report native Home constraints."""
 import atexit
 import json
 from pathlib import Path
-import re
 import subprocess
 import time
 import xml.etree.ElementTree as ET
@@ -75,9 +74,15 @@ custom_home_selected = initial_home.startswith(pkg + "/")
 open_home()
 shell("input", "keyevent", "82")
 before = eco_node()
-points = list(map(int, re.findall(r"\d+", before.attrib["bounds"])))
-shell("input", "tap", str((points[0] + points[2]) // 2), str((points[1] + points[3]) // 2))
-saved = eco_node().attrib["content-desc"]
+shell("input", "keyevent", "20")  # Down: TV e canais.
+shell("input", "keyevent", "22")  # Right: Modo leve.
+assert eco_node().get("focused") == "true", "O controle não alcançou o Modo leve"
+shell("input", "keyevent", "23")  # OK activates the focused card.
+saved = before.attrib["content-desc"]
+for _ in range(6):
+    saved = eco_node().attrib["content-desc"]
+    if saved != before.attrib["content-desc"]: break
+    time.sleep(.2)
 assert saved != before.attrib["content-desc"], "A preferência não foi alterada"
 shell("screencap", "-p", "/sdcard/tcl-upgrade-before.png")
 adb("pull", "/sdcard/tcl-upgrade-before.png", str(qa / "before.png"))

@@ -16,7 +16,7 @@ python3 tools/sign_release.py --unsigned /caminho/unsigned --private-backup /cam
 
 O script verifica os hashes do artifact e o certificado da chave, assina o APK público e o APK interno de teste e confere os dois. Copie apenas os APKs já assinados e `manifest.json` para `dist/signed/` na branch `signed-releases`. Não copie o backup.
 
-A publicação confere a impressão fixa, exige build release sem depuração, valida pacote/código de versão e testa uma atualização real no emulador. A preferência de Home e uma configuração feita pela interface precisam sobreviver antes que o APK seja publicado.
+A publicação confere a impressão fixa, exige build release sem depuração, valida pacote/código de versão e testa uma atualização real no emulador. A atualização deve preservar uma configuração feita pela interface e a resolução de Home. Quando a imagem TV mantém um Home persistente do sistema, o teste abre o aplicativo diretamente e registra essa limitação; não afirma ter validado a seleção de um launcher alternativo.
 
 Para uma nova versão, aumente `versionCode` em `app/build.gradle.kts` e atualize `signing/version.json`; o código do teste interno deve ser maior que o da versão publicada. Mantenha o certificado inalterado.
 

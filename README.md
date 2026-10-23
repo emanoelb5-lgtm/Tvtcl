@@ -41,8 +41,8 @@ Fonte das coordenadas: [IBGE, mapa municipal](https://geoftp.ibge.gov.br/cartas_
 2. Gera APK release unsigned e um APK interno com código maior para testar a atualização; nenhum APK debug é distribuído.
 3. O proprietário assina com a chave permanente usando [tools/sign_release.py](tools/sign_release.py), em ambiente privado.
 4. A branch `signed-releases` contém somente material público de distribuição e o fonte; não contém a chave ou suas senhas.
-5. O workflow valida pacote, versões, hashes e certificado fixo. No emulador, instala 0.7.0, altera uma preferência, define Home e aplica a atualização interna com `adb install -r`. A publicação só ocorre se a instalação, a preferência e a escolha de Home forem preservadas.
+5. O workflow valida pacote, versões, hashes e certificado fixo. No emulador, instala 0.7.0, altera uma preferência pela interface e aplica a atualização interna com `adb install -r`. A publicação exige que a atualização seja aceita, a preferência seja preservada e a resolução de Home permaneça estável.
 
-O APK interno de teste não é publicado em Releases. O resultado da verificação acompanha o APK público. Esses testes não substituem a validação no aparelho TCL físico.
+O APK interno de teste não é publicado em Releases. O resultado da verificação acompanha o APK público. A imagem Android TV de teste pode impor o launcher original mesmo após aceitar o comando de mudança. Nesse caso, o teste abre o TCL Light diretamente e registra que a seleção de um Home alternativo não foi validada. O launcher original nunca é desativado. Esses testes não substituem a validação no aparelho TCL físico.
 
 Veja [signing/README.md](signing/README.md) para preservar a assinatura nas próximas versões.
