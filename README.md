@@ -30,7 +30,7 @@ Launcher nativo e offline para Android TV, com atenção à TCL 40S6500FS.
 
 ## Compilação e verificação
 
-GitHub Actions compila o aplicativo e o APK de instrumentação e executa seis cenários em Android TV API 28, 720p: foco com D-pad; navegação de personalização; ocultar/restaurar um app de arquivos; retorno das configurações sem recriar a grade; modo leve e aberturas repetidas; capturas nativas 16:9. Relatórios, capturas e diagnósticos ficam no artefato `TCL-Light-TV-QA`. A publicação da beta ocorre apenas em `main`, após os testes.
+GitHub Actions compila o aplicativo e o APK de instrumentação e executa seis cenários em Android TV API 28, 720p: foco com D-pad; navegação de personalização; ocultar/restaurar um app de arquivos; retorno de outro aplicativo sem recriar a grade; modo leve e aberturas repetidas; capturas nativas 16:9. Relatórios, capturas e diagnósticos ficam no artefato `TCL-Light-TV-QA`. A publicação da beta ocorre apenas em `main`, após os testes.
 
 `applicationId=com.b5solucoes.tcllight` · `versionCode=6` · `versionName=0.6.0` · `minSdk=23` · `targetSdk=28` · `compileSdk=35`.
 

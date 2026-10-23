@@ -124,11 +124,14 @@ class LauncherNavigationTest {
         await { find("grid:"+fixture) != null }
     }
 
-    @Test fun testReturningFromSettingsReusesGridViews() {
+    @Test fun testReturningFromExternalAppReusesGridViews() {
         val before = find("grid:"+fixture)
-        onUi { screen.startActivity(Intent(Settings.ACTION_SETTINGS)) }
+        onUi {
+            screen.startActivity(Intent().setClassName(fixture,FixtureActivity::class.java.name)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
         await { onUi { !screen.hasWindowFocus() } }
-        // Settings belongs to Android; shell input returns across packages.
+        // The fixture runs as an external app; shell input returns across packages.
         android.os.ParcelFileDescriptor.AutoCloseInputStream(
             instrumentation.uiAutomation.executeShellCommand("input keyevent 4")
         ).use { it.readBytes() }
