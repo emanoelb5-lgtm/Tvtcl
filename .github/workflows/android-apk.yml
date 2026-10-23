@@ -5,6 +5,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
@@ -63,5 +67,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view beta > /dev/null 2>&1 || gh release create beta --title 'TCL Light • Beta' --prerelease --notes 'Launcher de teste para Android TV. Instale e teste antes de defini-lo como Home. Não modifica o firmware.'
+          gh release view beta > /dev/null 2>&1 || gh release create beta --title 'TCL Light • Beta' --prerelease --notes 'Interface premium minimalista para Android TV. Instale e teste antes de definir como Home. Não modifica o firmware.'
           gh release upload beta dist/TCL-Light-beta.apk --clobber
