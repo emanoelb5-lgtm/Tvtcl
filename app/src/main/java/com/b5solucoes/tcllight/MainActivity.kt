@@ -213,7 +213,7 @@ class MainActivity : Activity() {
             text = if (label == "TV") "◉  TV" else symbol
             textSize = if (label == "TV") 12.5f else 20f
             gravity = Gravity.CENTER
-            setTextColor(foreground)
+            setTextColor(this@MainActivity.foreground)
             contentDescription = label
             setOnClickListener { run() }
         }
