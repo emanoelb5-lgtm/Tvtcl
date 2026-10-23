@@ -2,7 +2,7 @@ name: Compilar APK TCL Light
 
 on:
   push:
-    branches: [main]
+    branches: [main, premium-tv-v06]
   workflow_dispatch:
 
 concurrency:
@@ -53,7 +53,43 @@ jobs:
           python3 tools/build_wallpapers.py
 
       - name: Compilar APK
-        run: gradle :app:assembleDebug --no-daemon --stacktrace
+        run: gradle :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace
+
+      - name: Habilitar KVM para testes de TV
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Verificar navegação em Android TV 720p
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 28
+          target: android-tv
+          arch: x86
+          profile: tv_720p
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            mkdir -p dist/qa
+            collect_qa() {
+              adb pull /sdcard/Android/data/com.b5solucoes.tcllight/files/qa dist/qa/screens || true
+              adb shell dumpsys gfxinfo com.b5solucoes.tcllight > dist/qa/gfxinfo.txt || true
+              adb logcat -d -s AndroidRuntime:E > dist/qa/crashes.txt || true
+            }
+            trap collect_qa EXIT
+            adb shell settings put system system_locales pt-BR
+            gradle :app:connectedDebugAndroidTest --no-daemon --stacktrace
+
+      - name: Guardar resultados dos testes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TCL-Light-TV-QA
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            dist/qa/
 
       - name: Preparar arquivo para download
         run: |
@@ -69,8 +105,9 @@ jobs:
           retention-days: 90
 
       - name: Publicar APK na aba Releases
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view beta > /dev/null 2>&1 || gh release create beta --title 'TCL Light • Beta' --prerelease --notes 'Interface premium minimalista para Android TV. Instale e teste antes de definir como Home. Não modifica o firmware.'
+          gh release view beta > /dev/null 2>&1 || gh release create beta --title 'TCL Light • Beta' --prerelease --notes 'TCL Light 0.6: nova central lateral, navegação para controle e imagens fora da thread de interface. Instale e teste antes de definir como Home. Não modifica o firmware.'
           gh release upload beta dist/TCL-Light-beta.apk --clobber

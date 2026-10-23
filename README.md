@@ -1,26 +1,41 @@
-# TCL Light 0.5 — Android TV premium
+# TCL Light 0.6 — Android TV
 
-Launcher nativo para Android TV, priorizando a TCL 40S6500FS.
+Launcher nativo e offline para Android TV, com atenção à TCL 40S6500FS.
 
-## O que há na v0.5
-- Cinco **fotografias reais** de paisagens convertidas em WebP 1280×720, compactadas e embaladas no APK, alternando a cada 2 minutos (sem rede em tempo de execução).
-- Perfis de foto fixa (1–5), alternância automática e fundo grafite; escurecimento de 20, 35, 50 ou 65%; ícones pequenos/normais/grandes; seleção de 5, 7 ou 10 mais utilizados.
-- **Modo economia** desativa os efeitos de zoom no foco e a rotação de papel de parede.
-- Mais utilizados ordenados por número de aberturas **a partir do launcher**, com opção de **fixar**, **ocultar** ou consultar informações via **OK longo**.
-- Gerenciamento de aplicativos ocultos disponível em Personalização e Central de ações.
-- Mostra apps lançáveis instalados pelo usuário, inclusive gerenciadores de arquivos, e streamings pré-instalados. Não mostra demais serviços de sistema.
-- Central de ações pelo botão ⋯ ou MENU: rede, perifericos de entrada detectados, armazenamento livre, Wi-Fi, Bluetooth, TV, dicas de HDMI, ajuste de Home, personalização e Configurações do Android.
-- Assistente para solicitar a configuração como launcher padrão; verifica a opção HOME quando o Android permite. Não requer root, não desativa sistema original.
+[**Baixar APK mais recente**](../../releases/download/beta/TCL-Light-beta.apk) · [Releases](../../releases/tag/beta) · [Compilações e testes](../../actions)
 
-## APK
-[Releases Beta](../../releases/tag/beta) · [GitHub Actions](../../actions). `applicationId=com.b5solucoes.tcllight`; `versionCode=5`.
+## Nova interface
 
-**Importante**: a assinatura da beta é de depuração, guardada no cache de GitHub Actions. Pode expirar. A escolha do launcher padrão continua sujeita às limitações do firmware TCL. Nunca desative o launcher original sem um plano de recuperação.
+- Central de ações em painel lateral, com atalhos grandes para rede, dispositivos, TV e modo leve; armazenamento, personalização e demais ações logo abaixo.
+- Barra superior compacta, ícones vetoriais consistentes, tipografia legível à distância e foco com contorno claro e animação curta.
+- Cartões de aplicativos em 16:9 aproveitam banners publicados pelos próprios apps. Quando não há banner, usam o ícone original.
+- Cinco fotografias reais 1280×720 WebP, embaladas no APK, com transição suave a cada dois minutos e escurecimento ajustável. Sem frases sobre o fundo.
+- Personalização, opções de apps e assistente Home seguem o mesmo padrão visual da central.
 
-## Compatibilidade e notas técnicas
-- `minSdk 23`, `targetSdk 28`; não é para Play Store atual.
-- O indicador Bluetooth abre ajustes, pois ler a lista de dispositivos pareados exige permissões especiais em Android recente. A lista de periféricos é a dos **dispositivos de entrada detectados**.
-- Para HDMI, use INPUT/SOURCE do controle. Não existe API universal de troca de entradas disponível a apps comuns em todas as TCL.
-- Histórico de utilização é local, restrito às aberturas feitas por esta tela. Não pede acesso às estatísticas privadas de outros apps.
-- Os cinco fundos são **gerados na compilação** a partir de fotografias Unsplash: veja [NOTICE_WALLPAPERS.md](NOTICE_WALLPAPERS.md). Se o fornecedor ficar indisponível, o build falha em vez de empacotar fundos ausentes.
-- O mecanismo de Home pode ser bloqueado no firmware. Use a central de ações → Assistente de tela inicial e teste depois de reiniciar. Se não houver opção no Android, a troca precisa ser feita pelo sistema/ADB, se suportado. Não modifique o firmware.
+## Fluidez
+
+- Fundos e miniaturas são carregados fora da thread da interface. Miniaturas limitadas a 320×180 ou ícones 128×128, com cache de 4 MiB compartilhado pelas duas seções.
+- Retornar de outro app não recria toda a tela: a grade permanece e a linha de mais utilizados só muda quando sua ordem muda.
+- Instalações e alterações de apps, rede e periféricos atualizam por eventos; sem varredura periódica de aplicativos.
+- Relógio atualizado por minuto. Fundos e observadores de estado param quando a tela fica invisível; executores são encerrados junto com a Activity.
+- Modo leve desativa o zoom de foco e a rotação de fotos. Ativado inicialmente quando o Android identifica pouca RAM; pode ser alterado na central.
+- Interface com Views nativas, sem WebView, vídeos de fundo, blur ou novas bibliotecas de execução. Bibliotecas AndroidX de teste entram apenas no APK de instrumentação.
+
+## Aplicativos e controle
+
+- Mostra apps lançáveis instalados pelo usuário, inclusive gerenciadores de arquivos, e streamings pré-instalados. Demais serviços e configurações de sistema ficam fora da grade.
+- Mais utilizados são ordenados pelas aberturas feitas pelo launcher. OK longo permite fixar, ocultar e abrir informações do app. Os dados ficam locais.
+- MENU abre/fecha a central; Voltar retorna um nível no painel e restaura o foco da tela inicial ao fechá-lo. Setas percorrem todos os controles sem escapar do painel.
+- Assistente para escolher o launcher como Home, conforme suporte do firmware. Não requer root nem desativa a tela original.
+
+## Compilação e verificação
+
+GitHub Actions compila o aplicativo e o APK de instrumentação e executa seis cenários em Android TV API 28, 720p: foco com D-pad; navegação de personalização; ocultar/restaurar um app de arquivos; retorno das configurações sem recriar a grade; modo leve e aberturas repetidas; capturas nativas 16:9. Relatórios, capturas e diagnósticos ficam no artefato `TCL-Light-TV-QA`. A publicação da beta ocorre apenas em `main`, após os testes.
+
+`applicationId=com.b5solucoes.tcllight` · `versionCode=6` · `versionName=0.6.0` · `minSdk=23` · `targetSdk=28` · `compileSdk=35`.
+
+A assinatura de depuração continua usando o mesmo cache das versões anteriores. O cache pode expirar; uma assinatura release privada ainda é necessária para distribuição definitiva. Não é uma versão destinada à Play Store atual.
+
+Para HDMI, use INPUT/SOURCE do controle: a troca direta depende das permissões do fabricante. O painel lista **dispositivos de entrada detectados**, não todos os acessórios Bluetooth pareados. Abra os ajustes para parear ou consultar acessórios.
+
+As fotos são preparadas na compilação a partir do Unsplash; consulte [autoria e licença](NOTICE_WALLPAPERS.md). O aplicativo não precisa de Internet para funcionar. O comportamento e o desempenho no aparelho físico ainda dependem do firmware e do hardware da TV.

@@ -2,6 +2,8 @@ package com.b5solucoes.tcllight
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
@@ -9,89 +11,115 @@ import android.os.Looper
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.ImageView
+import java.util.concurrent.Executors
 
-/** Cinco fotografias WebP embaladas no APK (1280 x 720, offline).
- * O slideshow não usa rede, vídeos ou serviços. Atualiza apenas quando visível.
- */
-class WallpaperDeck(context: Context, private val prefs: SharedPreferences) : FrameLayout(context) {
-    private val handler = Handler(Looper.getMainLooper())
-    private val imageA = ImageView(context).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
-    private val imageB = ImageView(context).apply {
-        scaleType = ImageView.ScaleType.CENTER_CROP; alpha = 0f
-    }
+/** Offline 16:9 photographs. Only the two visible frames are kept for cross-fades. */
+internal class WallpaperDeck(context: Context, private val prefs: SharedPreferences,
+                              private val economy: () -> Boolean) : FrameLayout(context) {
+    private val main = Handler(Looper.getMainLooper())
+    private val decoder = Executors.newSingleThreadExecutor { r -> Thread(r,"tv-wallpaper") }
+    private var front = ImageView(context).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
+    private var back = ImageView(context).apply { scaleType = ImageView.ScaleType.CENTER_CROP; alpha = 0f }
+    private val pictures = FrameLayout(context)
     private val veil = View(context)
-    private val photos = intArrayOf(
-        R.drawable.wallpaper_01, R.drawable.wallpaper_02,
-        R.drawable.wallpaper_03, R.drawable.wallpaper_04, R.drawable.wallpaper_05
-    )
+    private val sideVeil = View(context)
+    private val photos = intArrayOf(R.drawable.wallpaper_01,R.drawable.wallpaper_02,
+        R.drawable.wallpaper_03,R.drawable.wallpaper_04,R.drawable.wallpaper_05)
     private var index = 0
-    private var foreground = false
-    private val advance = object : Runnable {
-        override fun run() {
-            if (!foreground || prefs.getBoolean("eco_mode", false) ||
-                prefs.getInt("wallpaper_mode", -1) != -1) return
-            val next = (index + 1) % photos.size
-            imageB.setImageResource(photos[next])
-            imageB.alpha = 0f
-            imageB.animate().alpha(1f).setDuration(900L)
-                .withEndAction {
-                    imageA.setImageResource(photos[next])
-                    imageB.alpha = 0f
-                    imageB.setImageDrawable(null)
-                    index = next
-                }.start()
-            handler.postDelayed(this, 120000L)
-        }
+    private var loadedIndex = -1
+    private var active = false
+    private var closed = false
+    private var generation = 0
+    private var loading = false
+    private val advance = Runnable {
+        if(active && !economy() && prefs.getInt("wallpaper_mode",-1) == -1)
+            decode((index+1)%photos.size,true)
     }
 
     init {
-        addView(imageA, LayoutParams(-1,-1))
-        addView(imageB, LayoutParams(-1,-1))
-        addView(veil, LayoutParams(-1,-1))
+        setBackgroundColor(Color.rgb(9,15,24))
+        pictures.addView(front,LayoutParams(-1,-1)); pictures.addView(back,LayoutParams(-1,-1))
+        addView(pictures,LayoutParams(-1,-1))
+        addView(veil,LayoutParams(-1,-1)); addView(sideVeil,LayoutParams(-1,-1))
         reload()
     }
 
     fun reload() {
-        handler.removeCallbacks(advance)
-        imageB.animate().cancel()
-        imageB.alpha = 0f
-        imageB.setImageDrawable(null)
-        val mode = prefs.getInt("wallpaper_mode", -1)
-        index = if (mode in 0..4) mode else 0
-        if (mode == 5) {
-            imageA.setImageDrawable(null)
-            imageA.setBackgroundColor(Color.rgb(13, 22, 33))
-        } else {
-            imageA.setBackgroundColor(Color.TRANSPARENT)
-            imageA.setImageResource(photos[index])
+        if(closed) return
+        generation++
+        loading = false
+        main.removeCallbacks(advance)
+        settle()
+        val mode = prefs.getInt("wallpaper_mode",-1)
+        val selected = if(mode in photos.indices) mode else index
+        val dim = prefs.getInt("wallpaper_dim",50).coerceIn(20,80)/100f
+        veil.background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,intArrayOf(
+            Color.argb((255*dim*.32f).toInt(),3,9,17),
+            Color.argb((255*(.18f+dim*.58f)).toInt(),3,9,17),
+            Color.argb((255*(.83f+dim*.16f)).toInt(),4,9,16)))
+        sideVeil.background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(
+            Color.argb(58,3,9,17),Color.TRANSPARENT,Color.argb(12,3,9,17)))
+        if(mode == 5) {
+            front.setImageDrawable(null); back.setImageDrawable(null); loadedIndex = -1
+        } else if(loadedIndex != selected) decode(selected,false)
+        schedule()
+    }
+
+    private fun decode(next: Int,animate: Boolean) {
+        if(loading || closed) return
+        loading = true
+        val request = generation
+        decoder.execute {
+            val bitmap = try {
+                BitmapFactory.decodeResource(resources,photos[next],BitmapFactory.Options().apply {
+                    inPreferredConfig = Bitmap.Config.RGB_565
+                    inScaled = false
+                })
+            } catch(_: Exception) { null } catch(_: OutOfMemoryError) { null }
+            main.post {
+                if(closed || request != generation) return@post
+                loading = false
+                if(bitmap == null || (animate && !active)) { schedule(); return@post }
+                index = next; loadedIndex = next
+                if(animate && active && !economy()) {
+                    back.bringToFront()
+                    back.setImageBitmap(bitmap); back.alpha = 0f
+                    back.animate().alpha(1f).setDuration(650L).withEndAction {
+                        val previous = front
+                        front = back; back = previous
+                        front.alpha = 1f; back.alpha = 0f
+                        back.setImageDrawable(null)
+                        schedule()
+                    }.start()
+                } else {
+                    front.setImageBitmap(bitmap)
+                    schedule()
+                }
+            }
         }
-        val darkness = (prefs.getInt("wallpaper_dim", 50).coerceIn(20, 80) * 255 / 100)
-        veil.background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-            intArrayOf(Color.argb((darkness * .45f).toInt(), 3, 9, 17),
-                Color.argb(darkness, 3, 9, 17),
-                Color.argb((darkness * 1.25f).toInt().coerceAtMost(250), 2, 6, 12)))
-        if (foreground) onForeground()
     }
 
-    fun onForeground() {
-        foreground = true
-        handler.removeCallbacks(advance)
-        if (prefs.getInt("wallpaper_mode", -1) == -1 &&
-            !prefs.getBoolean("eco_mode", false)) {
-            handler.postDelayed(advance, 120000L)
+    private fun schedule() {
+        main.removeCallbacks(advance)
+        if(active && !closed && !loading && !economy() && prefs.getInt("wallpaper_mode",-1) == -1)
+            main.postDelayed(advance,120000L)
+    }
+
+    private fun settle() {
+        front.animate().cancel(); back.animate().cancel()
+        // If a transition was interrupted, keep the already decoded incoming frame.
+        if(back.drawable != null) {
+            val previous = front; front = back; back = previous
         }
+        front.alpha = 1f; back.alpha = 0f; back.setImageDrawable(null)
     }
 
-    fun onBackground() {
-        foreground = false
-        handler.removeCallbacks(advance)
-        imageB.animate().cancel()
-        imageB.alpha = 0f
-        imageB.setImageDrawable(null)
+    fun onForeground() { active = true; schedule() }
+    fun onBackground() { active = false; main.removeCallbacks(advance); settle() }
+    fun close() {
+        closed = true; generation++; onBackground()
+        decoder.shutdownNow(); main.removeCallbacksAndMessages(null)
+        front.setImageDrawable(null); back.setImageDrawable(null)
     }
-
-    override fun onDetachedFromWindow() {
-        onBackground()
-        super.onDetachedFromWindow()
-    }
+    override fun onDetachedFromWindow() { onBackground(); super.onDetachedFromWindow() }
 }
