@@ -47,6 +47,11 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
+      - name: Preparar cinco fotografias offline
+        run: |
+          python3 -m pip install --quiet pillow
+          python3 tools/build_wallpapers.py
+
       - name: Compilar APK
         run: gradle :app:assembleDebug --no-daemon --stacktrace
 

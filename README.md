@@ -1,24 +1,26 @@
-# TCL Light — v0.4.0 para Android TV
+# TCL Light 0.5 — Android TV premium
 
-Launcher Kotlin nativo, sem anúncios, login, rede externa ou imagens remotas.
+Launcher nativo para Android TV, priorizando a TCL 40S6500FS.
 
-### Nova experiência
-- **Aplicativos**: exibe aplicativos instalados pelo usuário (inclusive gerenciadores de arquivos, players e utilitários) e aplicativos de mídia/streaming pré-instalados. Oculta o restante dos apps de sistema, Configurações e launchers.
-- **Mais utilizados**: primeira linha ordenada pelo número de vezes que cada app foi aberto a partir deste launcher (desempate pelo acesso recente). Atualiza quando você retorna à tela inicial. Não lê a atividade privada de outros aplicativos.
-- **Central superior**: status de conexão (Wi-Fi, Ethernet ou sem rede), quantidade de entradas de controle/periféricos de entrada detectadas, TV, seleção de tela inicial padrão, atualização e Configurações. Não lê SSID, nome de Bluetooth ou dados pessoais.
-- **Papel de parede**: três paisagens artísticas locais desenhadas pelo Android, alternadas a cada 45 segundos com transição suave. Não usa fotos externas nem vídeo contínuo.
-- **Sem banner ou slogan** sobreposto ao fundo.
-- **Launcher de verdade**: já responde à categoria HOME. O botão ⌂ abre a solicitação do papel de tela inicial no Android 10+ ou a tela de apps Home em versões anteriores. A TCL pode restringir essa escolha. Não desative o launcher original; sempre mantenha o caminho de retorno.
+## O que há na v0.5
+- Cinco **fotografias reais** de paisagens convertidas em WebP 1280×720, compactadas e embaladas no APK, alternando a cada 2 minutos (sem rede em tempo de execução).
+- Perfis de foto fixa (1–5), alternância automática e fundo grafite; escurecimento de 20, 35, 50 ou 65%; ícones pequenos/normais/grandes; seleção de 5, 7 ou 10 mais utilizados.
+- **Modo economia** desativa os efeitos de zoom no foco e a rotação de papel de parede.
+- Mais utilizados ordenados por número de aberturas **a partir do launcher**, com opção de **fixar**, **ocultar** ou consultar informações via **OK longo**.
+- Gerenciamento de aplicativos ocultos disponível em Personalização e Central de ações.
+- Mostra apps lançáveis instalados pelo usuário, inclusive gerenciadores de arquivos, e streamings pré-instalados. Não mostra demais serviços de sistema.
+- Central de ações pelo botão ⋯ ou MENU: rede, perifericos de entrada detectados, armazenamento livre, Wi-Fi, Bluetooth, TV, dicas de HDMI, ajuste de Home, personalização e Configurações do Android.
+- Assistente para solicitar a configuração como launcher padrão; verifica a opção HOME quando o Android permite. Não requer root, não desativa sistema original.
 
-### Instalação
-- APK beta: [Releases](../../releases/tag/beta). Mesmo pacote `com.b5solucoes.tcllight`, `versionCode=4`; instalação sobre versão anterior depende de assinatura compatível.
-- A execução [Actions](../../actions) gera `TCL-Light-beta.apk` e publica em Releases.
-- Assinatura **debug** permanece guardada em cache GitHub; pode expirar e não garante atualizações indefinidas. Para lançamento estável, configurar chave de assinatura de release preservada como segredo.
-- A atividade HOME abre automaticamente após seleção apenas em versões/firmwares que permitam trocar a tela inicial por aplicativos de terceiros.
+## APK
+[Releases Beta](../../releases/tag/beta) · [GitHub Actions](../../actions). `applicationId=com.b5solucoes.tcllight`; `versionCode=5`.
 
-### Limitações
-- Mostra somente apps com entrada de launcher; serviços sem Activity lançável não entram.
-- 'Mais utilizados' mede aberturas pela própria tela inicial, não uso em minutos nem aberturas externas.
-- A central mostra dispositivos de entrada detectados pelo Android (não necessariamente todo periférico Bluetooth emparelhado).
-- O atalho TV exige um app TV detectável; HDMI continua no botão INPUT/SOURCE.
-- `minSdk=23`, `targetSdk=28` apenas para compatibilidade com a TCL antiga, não adequado à publicação atual na Play Store.
+**Importante**: a assinatura da beta é de depuração, guardada no cache de GitHub Actions. Pode expirar. A escolha do launcher padrão continua sujeita às limitações do firmware TCL. Nunca desative o launcher original sem um plano de recuperação.
+
+## Compatibilidade e notas técnicas
+- `minSdk 23`, `targetSdk 28`; não é para Play Store atual.
+- O indicador Bluetooth abre ajustes, pois ler a lista de dispositivos pareados exige permissões especiais em Android recente. A lista de periféricos é a dos **dispositivos de entrada detectados**.
+- Para HDMI, use INPUT/SOURCE do controle. Não existe API universal de troca de entradas disponível a apps comuns em todas as TCL.
+- Histórico de utilização é local, restrito às aberturas feitas por esta tela. Não pede acesso às estatísticas privadas de outros apps.
+- Os cinco fundos são **gerados na compilação** a partir de fotografias Unsplash: veja [NOTICE_WALLPAPERS.md](NOTICE_WALLPAPERS.md). Se o fornecedor ficar indisponível, o build falha em vez de empacotar fundos ausentes.
+- O mecanismo de Home pode ser bloqueado no firmware. Use a central de ações → Assistente de tela inicial e teste depois de reiniciar. Se não houver opção no Android, a troca precisa ser feita pelo sistema/ADB, se suportado. Não modifique o firmware.

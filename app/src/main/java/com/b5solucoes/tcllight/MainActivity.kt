@@ -1,9 +1,15 @@
 package com.b5solucoes.tcllight
 
 import android.app.Activity
+import android.app.AlertDialog
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Environment
+import android.os.StatFs
+import android.text.format.Formatter
+import android.widget.Button
+import android.widget.SeekBar
 import android.app.role.RoleManager
-import android.animation.Animator
-import android.animation.AnimatorListenerAdapter
 import android.net.ConnectivityManager
 import android.os.Build
 import android.view.InputDevice
@@ -67,9 +73,7 @@ class MainActivity : Activity() {
     private var dateLabel: TextView? = null
     private var networkLabel: TextView? = null
     private var deviceLabel: TextView? = null
-    private var wallpaperMain: AtmosphericBackground? = null
-    private var wallpaperNext: AtmosphericBackground? = null
-    private var wallpaperIndex = 0
+    private var wallpapers: WallpaperDeck? = null
     private var usageDirty = false
     private var navWifi: View? = null
     private var navDevices: View? = null
@@ -80,26 +84,6 @@ class MainActivity : Activity() {
     private var lastScan = 0L
     private var initialRender = true
     private var lastFocus = ""
-    private val cycleWallpaper = object : Runnable {
-        override fun run() {
-            val front = wallpaperNext ?: return
-            val back = wallpaperMain ?: return
-            val next = (wallpaperIndex + 1) % 3
-            front.scene = next
-            front.alpha = 0f
-            front.animate().alpha(1f).setDuration(1100L)
-                .setListener(object : AnimatorListenerAdapter() {
-                    override fun onAnimationEnd(animation: Animator) {
-                        back.scene = next
-                        wallpaperIndex = next
-                        front.alpha = 0f
-                        front.animate().setListener(null)
-                    }
-                }).start()
-            handler.postDelayed(this, 45000L)
-        }
-    }
-
     private val clockUpdate = object : Runnable {
         override fun run() {
             val now = Date()
@@ -127,28 +111,24 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         refreshStatus()
-        handler.removeCallbacks(cycleWallpaper)
-        handler.postDelayed(cycleWallpaper, 45000L)
+        wallpapers?.onForeground()
         if (System.currentTimeMillis() - lastScan > 90000L) refresh()
         else if (usageDirty) { usageDirty = false; render() }
     }
 
     override fun onPause() {
-        handler.removeCallbacks(cycleWallpaper)
-        wallpaperNext?.animate()?.cancel()
-        wallpaperNext?.alpha = 0f
+        wallpapers?.onBackground()
         super.onPause()
     }
 
     override fun onDestroy() {
         handler.removeCallbacks(clockUpdate)
-        handler.removeCallbacks(cycleWallpaper)
         super.onDestroy()
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if (keyCode == KeyEvent.KEYCODE_MENU) {
-            openSettings()
+            showActionCenter()
             return true
         }
         return super.onKeyDown(keyCode, event)
@@ -174,10 +154,8 @@ class MainActivity : Activity() {
 
     private fun buildInterface() {
         val frame = FrameLayout(this)
-        wallpaperMain = AtmosphericBackground(this)
-        wallpaperNext = AtmosphericBackground(this).apply { alpha = 0f }
-        frame.addView(wallpaperMain, FrameLayout.LayoutParams(-1, -1))
-        frame.addView(wallpaperNext, FrameLayout.LayoutParams(-1, -1))
+        wallpapers = WallpaperDeck(this, prefs)
+        frame.addView(wallpapers, FrameLayout.LayoutParams(-1, -1))
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             clipChildren = false
@@ -207,7 +185,8 @@ class MainActivity : Activity() {
         nav.addView(navButton("TV", "◉") { openTv() }, params(dp(67), dp(39), 0, 0, 8))
         nav.addView(navButton("Início padrão", "⌂") { setAsDefaultHome() }, params(dp(43), dp(39), 0, 0, 8))
         nav.addView(navButton("Atualizar", "↻") { refresh() }, params(dp(43), dp(39), 0, 0, 8))
-        nav.addView(navButton("Configurações", "⚙") { openSettings() }, params(dp(43), dp(39)))
+        nav.addView(navButton("Central de ações", "⋯") { showActionCenter() }, params(dp(43), dp(39), 0, 0, 8))
+        nav.addView(navButton("Personalização", "⚙") { showPreferences() }, params(dp(43), dp(39)))
 
         val scroll = ScrollView(this).apply {
             isVerticalScrollBarEnabled = false
@@ -235,7 +214,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        footer.addView(words("Selecione um aplicativo para aumentar sua posição nos mais usados", 10f, muted),
+        footer.addView(words("OK abre  ·  Segure OK para fixar/ocultar  ·  MENU abre a central", 10f, muted),
             LinearLayout.LayoutParams(0, -2, 1f))
         footer.addView(words("SIMPLES  ·  SEM ANÚNCIOS", 10f, quiet))
         root.addView(footer, params(-1, dp(34), 50, 0, 50, 6))
@@ -340,8 +319,13 @@ class MainActivity : Activity() {
             v.background = rounded(if (focused) focusColor else cardColor,
                 if (focused) aqua else null, radius)
             v.elevation = if (focused) dp(8).toFloat() else 0f
-            v.animate().scaleX(if (focused) 1.035f else 1f)
-                .scaleY(if (focused) 1.035f else 1f).setDuration(95).start()
+            if (prefs.getBoolean("eco_mode", false)) {
+                v.scaleX = 1f
+                v.scaleY = 1f
+            } else {
+                v.animate().scaleX(if (focused) 1.035f else 1f)
+                    .scaleY(if (focused) 1.035f else 1f).setDuration(95).start()
+            }
             if (focused) lastFocus = key
         }
     }
@@ -366,7 +350,12 @@ class MainActivity : Activity() {
             setPadding(dp(9), dp(8), dp(9), dp(8))
             contentDescription = app.name
         }
-        val side = if (large) 63 else 49
+        val sizeOffset = when (prefs.getInt("icon_scale", 1)) {
+            0 -> -11
+            2 -> 11
+            else -> 0
+        }
+        val side = (if (large) 63 else 49) + sizeOffset
         card.addView(ImageView(this).apply {
             setImageDrawable(app.icon)
             scaleType = ImageView.ScaleType.FIT_CENTER
@@ -378,6 +367,7 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
         }, params(-1, -2))
         card.setOnClickListener { open(app) }
+        card.setOnLongClickListener { showAppMenu(app); true }
         focusStyle(card, "app:" + app.packageName)
         return card
     }
@@ -387,7 +377,7 @@ class MainActivity : Activity() {
         val keepFocus = (currentFocus?.tag as? String) ?: lastFocus
         column.removeViews(1, column.childCount - 1)
 
-        column.addView(section("Mais utilizados", "Ordenados pelos seus acessos"),
+        column.addView(section("Mais utilizados", "Os fixados aparecem primeiro"),
             params(-1, -2, 0, 0, 8, 16))
         val favoriteStrip = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
@@ -404,7 +394,9 @@ class MainActivity : Activity() {
         favoriteStrip.addView(favoriteLine)
         column.addView(favoriteStrip, params(-1, dp(130), 0, 0, 0, 21))
 
-        val selected = rankedApps().take(7)
+        val visible = mediaApps.filterNot { it.packageName in hiddenApps() }
+        val chosenCount = prefs.getInt("top_count", 7).coerceIn(5, 10)
+        val selected = rankedApps(visible).take(chosenCount)
         val available = LinkedHashMap<String, View>()
         var first: View? = null
         for (app in selected) {
@@ -419,16 +411,16 @@ class MainActivity : Activity() {
                 params(-2, -2, 9, 28))
         }
 
-        column.addView(section("Aplicativos", mediaApps.size.toString() + " disponíveis"),
+        column.addView(section("Aplicativos", visible.size.toString() + " disponíveis"),
             params(-1, -2, 0, 0, 8, 16))
 
-        if (mediaApps.isEmpty()) {
+        if (visible.isEmpty()) {
             column.addView(words(
                 "Nenhum aplicativo de usuário ou streaming detectado. Use ↻ para atualizar.",
                 13f, muted
             ), params(-1, dp(60), 0, 6, 0, 5))
         } else {
-            for (group in mediaApps.chunked(5)) {
+            for (group in visible.chunked(5)) {
                 val row = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
                     clipChildren = false
@@ -595,11 +587,54 @@ class MainActivity : Activity() {
      * Ranking sem permissão Usage Access: conta apenas lançamentos feitos neste launcher.
      * Reordena ao voltar para Home. Os dados ficam locais no SharedPreferences.
      */
-    private fun rankedApps(): List<TvApp> = mediaApps.sortedWith(
-        compareByDescending<TvApp> { prefs.getInt("usage.count." + it.packageName, 0) }
-            .thenByDescending { prefs.getLong("usage.time." + it.packageName, 0L) }
-            .thenBy { it.name.lowercase(locale) }
-    )
+    private fun hiddenApps(): Set<String> = prefs.getStringSet("hidden_apps", emptySet())
+        ?.toSet() ?: emptySet()
+
+    private fun pinnedApps(): Set<String> = prefs.getStringSet("pinned_apps", emptySet())
+        ?.toSet() ?: emptySet()
+
+    private fun rankedApps(installed: List<TvApp>): List<TvApp> {
+        val pinned = pinnedApps()
+        return installed.sortedWith(
+            compareByDescending<TvApp> { it.packageName in pinned }
+                .thenByDescending { prefs.getInt("usage.count." + it.packageName, 0) }
+                .thenByDescending { prefs.getLong("usage.time." + it.packageName, 0L) }
+                .thenBy { it.name.lowercase(locale) }
+        )
+    }
+
+    private fun showAppMenu(app: TvApp) {
+        val pkg = app.packageName
+        val pin = pkg in pinnedApps()
+        AlertDialog.Builder(this)
+            .setTitle(app.name)
+            .setItems(arrayOf(
+                if (pin) "Desafixar dos mais utilizados" else "Fixar nos mais utilizados",
+                "Ocultar da tela inicial",
+                "Informações do aplicativo"
+            )) { _, choice ->
+                when (choice) {
+                    0 -> {
+                        val all = pinnedApps().toMutableSet()
+                        if (pin) all.remove(pkg) else all.add(pkg)
+                        prefs.edit().putStringSet("pinned_apps", all).apply()
+                        render()
+                    }
+                    1 -> {
+                        val all = hiddenApps().toMutableSet()
+                        all.add(pkg)
+                        prefs.edit().putStringSet("hidden_apps", all).apply()
+                        render()
+                    }
+                    2 -> {
+                        try {
+                            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                                .setData(Uri.parse("package:" + pkg)))
+                        } catch (_: Exception) { openSettings() }
+                    }
+                }
+            }.show()
+    }
 
     private fun recordLaunch(app: TvApp) {
         val id = app.packageName
@@ -642,6 +677,188 @@ class MainActivity : Activity() {
         ).show()
     }
 
+    private fun wifiState(): String = try {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        @Suppress("DEPRECATION")
+        val active = cm.activeNetworkInfo
+        when {
+            active?.isConnected != true -> "Desconectado"
+            active.type == ConnectivityManager.TYPE_WIFI -> "Wi-Fi conectado"
+            active.type == ConnectivityManager.TYPE_ETHERNET -> "Rede cabeada conectada"
+            else -> "Rede conectada"
+        }
+    } catch (_: Exception) { "Estado indisponível" }
+
+    private fun controllers(): List<String> = try {
+        InputDevice.getDeviceIds().toList().mapNotNull { InputDevice.getDevice(it) }
+            .filter { device ->
+                !device.isVirtual && (device.supportsSource(InputDevice.SOURCE_DPAD) ||
+                    device.supportsSource(InputDevice.SOURCE_GAMEPAD) ||
+                    device.supportsSource(InputDevice.SOURCE_KEYBOARD) ||
+                    device.supportsSource(InputDevice.SOURCE_MOUSE))
+            }.map { it.name }.distinct()
+    } catch (_: Exception) { emptyList() }
+
+    private fun storageInfo(): String = try {
+        val storage = StatFs(Environment.getDataDirectory().absolutePath)
+        val free = storage.availableBytes
+        val total = storage.totalBytes
+        Formatter.formatShortFileSize(this, free) + " livres de " +
+            Formatter.formatShortFileSize(this, total)
+    } catch (_: Exception) { "Não disponível" }
+
+    private fun showActionCenter() {
+        val input = controllers()
+        val details = "Rede: " + wifiState() +
+            "\nPeriféricos de entrada: " + if (input.isEmpty()) "nenhum identificado"
+                else input.joinToString(", ")
+        val items = arrayOf(
+            "Wi-Fi  ·  " + wifiState(),
+            "Bluetooth e controles  ·  " + input.size + " detectados",
+            "Armazenamento  ·  " + storageInfo(),
+            "TV / Canais",
+            "Entradas HDMI / SOURCE",
+            "Definir tela inicial padrão",
+            "Personalização do launcher",
+            "Mostrar aplicativos ocultos",
+            "Configurações do Android",
+            "Atualizar aplicativos"
+        )
+        AlertDialog.Builder(this).setTitle("Central de ações")
+            .setItems(items) { _, index ->
+                when (index) {
+                    0 -> openWifiSettings()
+                    1 -> AlertDialog.Builder(this)
+                        .setTitle("Periféricos")
+                        .setMessage(details + "\n\nDispositivos Bluetooth pareados podem não " +
+                            "aparecer nesta lista de entradas.")
+                        .setPositiveButton("Ajustes Bluetooth") { _, _ -> openPeripheralSettings() }
+                        .setNegativeButton("Fechar", null).show()
+                    2 -> AlertDialog.Builder(this).setTitle("Armazenamento")
+                        .setMessage(storageInfo())
+                        .setPositiveButton("Ajustes de armazenamento") { _, _ -> openStorageSettings() }
+                        .setNegativeButton("Fechar", null).show()
+                    3 -> openTv()
+                    4 -> AlertDialog.Builder(this).setTitle("Entradas HDMI")
+                        .setMessage("Nesta TCL a troca direta de HDMI pode exigir permissões " +
+                            "exclusivas do fabricante. Pressione INPUT/SOURCE no controle " +
+                            "para escolher HDMI 1, HDMI 2 ou TV sem perder a imagem.")
+                        .setPositiveButton("Entendi", null).show()
+                    5 -> showHomeAssistant()
+                    6 -> showPreferences()
+                    7 -> showHiddenApps()
+                    8 -> openSettings()
+                    9 -> refresh()
+                }
+            }.setNegativeButton("Fechar", null).show()
+    }
+
+    private fun openStorageSettings() {
+        try { startActivity(Intent(Settings.ACTION_INTERNAL_STORAGE_SETTINGS)) }
+        catch (_: Exception) { openSettings() }
+    }
+
+    private fun currentHome(): String = try {
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+        @Suppress("DEPRECATION")
+        val resolved = packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
+        if (resolved?.activityInfo?.packageName == packageName) "TCL Light está ativo"
+        else "Outro launcher é o padrão no momento"
+    } catch (_: Exception) { "Não foi possível identificar o launcher padrão" }
+
+    private fun showHomeAssistant() {
+        AlertDialog.Builder(this)
+            .setTitle("Usar como tela inicial")
+            .setMessage(currentHome() +
+                "\n\n1. Teste Configurações e os aplicativos antes da troca." +
+                "\n2. Escolha TCL Light como Home, se o Android permitir." +
+                "\n3. Pressione Home para conferir." +
+                "\n4. Reinicie a TV e confira novamente." +
+                "\n\nMantenha a tela original TCL instalada: alguns firmwares " +
+                "não permitem a seleção de launchers de terceiros.")
+            .setPositiveButton("Escolher Home") { _, _ -> setAsDefaultHome() }
+            .setNeutralButton("Verificar") { _, _ ->
+                Toast.makeText(this, currentHome(), Toast.LENGTH_LONG).show()
+            }
+            .setNegativeButton("Cancelar", null).show()
+    }
+
+    private fun showHiddenApps() {
+        val hidden = hiddenApps()
+        val options = mediaApps.filter { it.packageName in hidden }
+        if (options.isEmpty()) {
+            Toast.makeText(this, "Nenhum aplicativo oculto.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        AlertDialog.Builder(this).setTitle("Restaurar aplicativo")
+            .setItems(options.map { it.name }.toTypedArray()) { _, idx ->
+                val list = hidden.toMutableSet()
+                list.remove(options[idx].packageName)
+                prefs.edit().putStringSet("hidden_apps", list).apply()
+                render()
+            }.setNegativeButton("Fechar", null).show()
+    }
+
+    private fun showPreferences() {
+        val items = arrayOf(
+            "Fundo: " + when (prefs.getInt("wallpaper_mode", -1)) {
+                -1 -> "Alternando 5 fotografias"
+                5 -> "Grafite sem fotos"
+                else -> "Fotografia fixa"
+            },
+            "Escurecimento: " + prefs.getInt("wallpaper_dim", 50) + "%",
+            "Tamanho dos ícones: " + when(prefs.getInt("icon_scale", 1)) {
+                0 -> "Compacto"; 2 -> "Grande"; else -> "Normal"
+            },
+            "Quantidade de mais usados: " + prefs.getInt("top_count", 7),
+            "Modo economia: " + if (prefs.getBoolean("eco_mode", false)) "Ativado"
+                else "Desativado",
+            "Gerenciar aplicativos ocultos",
+            "Assistente de tela inicial",
+            "Configurações do Android"
+        )
+        AlertDialog.Builder(this).setTitle("Personalização")
+            .setItems(items) { _, index ->
+                when(index) {
+                    0 -> choose("Fotografias", arrayOf("Alternar as 5 fotografias",
+                        "Paisagem 1", "Paisagem 2", "Paisagem 3", "Paisagem 4",
+                        "Paisagem 5", "Fundo grafite"), "wallpaper_mode",
+                        intArrayOf(-1,0,1,2,3,4,5))
+                    1 -> choose("Escurecimento", arrayOf("20% · Mais claro",
+                        "35% · Suave", "50% · Equilibrado", "65% · Mais escuro"),
+                        "wallpaper_dim", intArrayOf(20,35,50,65))
+                    2 -> choose("Tamanho dos ícones",
+                        arrayOf("Compacto", "Normal", "Grande"),
+                        "icon_scale", intArrayOf(0,1,2))
+                    3 -> choose("Mais utilizados",
+                        arrayOf("5 aplicativos", "7 aplicativos", "10 aplicativos"),
+                        "top_count", intArrayOf(5,7,10))
+                    4 -> {
+                        val enabled = !prefs.getBoolean("eco_mode", false)
+                        prefs.edit().putBoolean("eco_mode", enabled).apply()
+                        wallpapers?.onBackground()
+                        wallpapers?.reload()
+                        wallpapers?.onForeground()
+                        render()
+                        showPreferences()
+                    }
+                    5 -> showHiddenApps()
+                    6 -> showHomeAssistant()
+                    7 -> openSettings()
+                }
+            }.setNegativeButton("Fechar", null).show()
+    }
+
+    private fun choose(title: String, labels: Array<String>, key: String,
+                       values: IntArray) {
+        AlertDialog.Builder(this).setTitle(title)
+            .setItems(labels) { _, index ->
+                prefs.edit().putInt(key, values[index]).apply()
+                wallpapers?.reload()
+                render()
+            }.setNegativeButton("Cancelar", null).show()
+    }
+
     private fun openSettings() {
         try {
             startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -651,70 +868,3 @@ class MainActivity : Activity() {
     }
 }
 
-/** Três paisagens ilustradas locais e 16:9, alternadas somente a cada 45 s.
- * Não carrega fotos em rede, não mantém decoder e só redesenha na troca.
- */
-private class AtmosphericBackground(context: Context) : View(context) {
-    var scene: Int = 0
-        set(value) { field = value % 3; invalidate() }
-    private val p = Paint(Paint.ANTI_ALIAS_FLAG)
-
-    override fun onDraw(c: Canvas) {
-        super.onDraw(c)
-        val w = width.toFloat()
-        val h = height.toFloat()
-        if (w <= 0f || h <= 0f) return
-        val sky = when (scene) {
-            0 -> intArrayOf(Color.rgb(30, 61, 89), Color.rgb(23, 74, 94), Color.rgb(7, 24, 45))
-            1 -> intArrayOf(Color.rgb(60, 46, 82), Color.rgb(24, 75, 107), Color.rgb(10, 24, 51))
-            else -> intArrayOf(Color.rgb(84, 61, 69), Color.rgb(60, 85, 113), Color.rgb(13, 28, 49))
-        }
-        p.shader = LinearGradient(0f, 0f, w, h, sky, null, Shader.TileMode.CLAMP)
-        c.drawRect(0f, 0f, w, h, p)
-        p.shader = null
-
-        val haloX = when (scene) { 0 -> .74f; 1 -> .64f; else -> .84f }
-        val haloY = when (scene) { 0 -> .23f; 1 -> .34f; else -> .20f }
-        p.shader = RadialGradient(w * haloX, h * haloY, h * .54f,
-            intArrayOf(Color.argb(190, 238, 190, 154),
-                Color.argb(100, 152, 163, 191), Color.TRANSPARENT),
-            floatArrayOf(0f, .37f, 1f), Shader.TileMode.CLAMP)
-        c.drawRect(0f, 0f, w, h, p)
-        p.shader = null
-
-        val mountain = Path().apply {
-            moveTo(0f, h * .82f)
-            cubicTo(w * .12f, h * .66f, w * .25f, h * .84f, w * .41f, h * .61f)
-            cubicTo(w * .55f, h * .46f, w * .61f, h * .75f, w * .73f, h * .63f)
-            cubicTo(w * .89f, h * .46f, w * .92f, h * .68f, w, h * .61f)
-            lineTo(w, h); lineTo(0f, h); close()
-        }
-        p.color = when (scene) {
-            0 -> Color.rgb(28, 66, 82)
-            1 -> Color.rgb(40, 65, 93)
-            else -> Color.rgb(71, 72, 89)
-        }
-        c.drawPath(mountain, p)
-
-        val foregroundHills = Path().apply {
-            moveTo(0f, h * .88f)
-            cubicTo(w * .22f, h * .78f, w * .29f, h * .95f, w * .46f, h * .83f)
-            cubicTo(w * .70f, h * .66f, w * .81f, h * .92f, w, h * .79f)
-            lineTo(w, h); lineTo(0f, h); close()
-        }
-        p.color = when(scene) {
-            0 -> Color.rgb(12, 40, 56)
-            1 -> Color.rgb(13, 44, 68)
-            else -> Color.rgb(35, 48, 67)
-        }
-        c.drawPath(foregroundHills, p)
-
-        // Escurecimento na área inferior, para manter ícones e textos legíveis.
-        p.shader = LinearGradient(0f, h * .33f, 0f, h,
-            intArrayOf(Color.argb(115, 3, 11, 19), Color.argb(160, 5, 14, 25),
-                Color.argb(232, 4, 11, 19)),
-            null, Shader.TileMode.CLAMP)
-        c.drawRect(0f, h * .33f, w, h, p)
-        p.shader = null
-    }
-}
