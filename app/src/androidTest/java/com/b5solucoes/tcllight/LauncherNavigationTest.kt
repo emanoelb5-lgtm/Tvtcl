@@ -70,8 +70,7 @@ class LauncherNavigationTest {
     }
 
     private fun key(code: Int) {
-        instrumentation.uiAutomation.injectInputEvent(KeyEvent(KeyEvent.ACTION_DOWN,code),true)
-        instrumentation.uiAutomation.injectInputEvent(KeyEvent(KeyEvent.ACTION_UP,code),true)
+        instrumentation.sendKeyDownUpSync(code)
         instrumentation.waitForIdleSync()
     }
 
@@ -129,7 +128,11 @@ class LauncherNavigationTest {
         val before = find("grid:"+fixture)
         onUi { screen.startActivity(Intent(Settings.ACTION_SETTINGS)) }
         await { onUi { !screen.hasWindowFocus() } }
-        key(KeyEvent.KEYCODE_BACK)
+        // Settings belongs to Android; shell input returns across packages.
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(
+            instrumentation.uiAutomation.executeShellCommand("input keyevent 4")
+        ).use { it.readBytes() }
+        instrumentation.waitForIdleSync()
         await { onUi { screen.hasWindowFocus() } }
         assertSame("A grade foi recriada sem alteração nos apps",before,find("grid:"+fixture))
     }
