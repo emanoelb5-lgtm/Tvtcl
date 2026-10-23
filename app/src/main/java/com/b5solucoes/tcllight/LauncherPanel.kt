@@ -66,8 +66,8 @@ internal class LauncherPanel(private val ui: TvStyle, title: String, subtitle: S
         val scroll = ScrollView(context).apply {
             isVerticalScrollBarEnabled = false
             overScrollMode = View.OVER_SCROLL_NEVER
-            clipChildren = false
-            clipToPadding = false
+            clipChildren = true
+            clipToPadding = true
             isFillViewport = false
         }
         scroll.addView(content)

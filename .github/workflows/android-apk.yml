@@ -86,12 +86,13 @@ jobs:
         run: |
           mkdir -p dist
           cp app/build/outputs/apk/debug/app-debug.apk dist/TCL-Light-beta.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/TCL-Light-0.6.0.apk
 
       - name: Disponibilizar APK no GitHub Actions
         uses: actions/upload-artifact@v4
         with:
           name: TCL-Light-APK
-          path: dist/TCL-Light-beta.apk
+          path: dist/*.apk
           if-no-files-found: error
           retention-days: 90
 
@@ -101,5 +102,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release view beta > /dev/null 2>&1 || gh release create beta --title 'TCL Light • Beta' --prerelease --notes 'TCL Light 0.6: nova central lateral, navegação para controle e imagens fora da thread de interface. Instale e teste antes de definir como Home. Não modifica o firmware.'
-          gh release upload beta dist/TCL-Light-beta.apk --clobber
+          gh release upload beta dist/*.apk --clobber
           gh release edit beta --title 'TCL Light 0.6 • Beta' --notes-file RELEASE_NOTES.md

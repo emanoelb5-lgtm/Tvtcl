@@ -14,7 +14,7 @@ internal data class Artwork(val bitmap: Bitmap, val banner: Boolean)
 /** Bounded thumbnails, decoded away from input dispatch; shared by both app rows. */
 internal class AppArtwork(context: Context) {
     private val manager = context.applicationContext.packageManager
-    private val worker = Executors.newSingleThreadExecutor { r -> Thread(r,"tv-artwork") }
+    private val worker = Executors.newSingleThreadExecutor { r -> Thread({ android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND); r.run() },"tv-artwork") }
     private val main = Handler(Looper.getMainLooper())
     private val waiting = HashMap<String,MutableList<(Artwork?) -> Unit>>()
     private val cache = object : LruCache<String,Artwork>(4 * 1024 * 1024) {

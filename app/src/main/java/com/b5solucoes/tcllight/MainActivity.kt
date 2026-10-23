@@ -48,7 +48,7 @@ class MainActivity : Activity() {
     private fun economy() = prefs.getBoolean("eco_mode", lowMemory)
     private val ui by lazy { TvStyle(this, ::economy) }
     private val artwork by lazy { AppArtwork(applicationContext) }
-    private val scanner = Executors.newSingleThreadExecutor { r -> Thread(r,"tv-app-catalog") }
+    private val scanner = Executors.newSingleThreadExecutor { r -> Thread({ android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND); r.run() },"tv-app-catalog") }
     private lateinit var frame: FrameLayout
     private lateinit var homeLayer: LinearLayout
     private lateinit var listScroll: ScrollView
@@ -231,10 +231,10 @@ class MainActivity : Activity() {
             setPadding(dp(8),dp(8),dp(8),dp(8))
         },lp(dp(34),dp(34),0,0,10))
         val brandText = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        brandText.addView(ui.text("TCL Light",17.5f,medium=true))
+        brandText.addView(ui.text("TCL Light",17.5f,medium=true).apply { maxLines = 1 })
         brandText.addView(ui.text("TELA INICIAL",8f,ui.muted).apply { letterSpacing = .16f },
             lp(-2,-2,0,4))
-        brand.addView(brandText)
+        brand.addView(brandText,lp(dp(100),-2))
         styleHome(brand,"nav:home",true)
         brand.setOnClickListener {
             listScroll.smoothScrollTo(0,0); (topViews.firstOrNull() ?: centralButton).requestFocus()
@@ -304,7 +304,7 @@ class MainActivity : Activity() {
     private fun section(title: String,meta: String): View = LinearLayout(this).apply {
         gravity = Gravity.CENTER_VERTICAL
         addView(ui.text(title,18f,medium=true),LinearLayout.LayoutParams(0,-2,1f))
-        addView(ui.text(meta,10.5f,ui.quiet))
+        addView(ui.text(meta,10.5f,ui.muted))
     }
 
     private fun navControl(key: String,icon: TvIcon.Kind,label: String,text: TextView,

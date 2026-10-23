@@ -17,7 +17,7 @@ import java.util.concurrent.Executors
 internal class WallpaperDeck(context: Context, private val prefs: SharedPreferences,
                               private val economy: () -> Boolean) : FrameLayout(context) {
     private val main = Handler(Looper.getMainLooper())
-    private val decoder = Executors.newSingleThreadExecutor { r -> Thread(r,"tv-wallpaper") }
+    private val decoder = Executors.newSingleThreadExecutor { r -> Thread({ android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND); r.run() },"tv-wallpaper") }
     private var front = ImageView(context).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
     private var back = ImageView(context).apply { scaleType = ImageView.ScaleType.CENTER_CROP; alpha = 0f }
     private val pictures = FrameLayout(context)
@@ -54,7 +54,7 @@ internal class WallpaperDeck(context: Context, private val prefs: SharedPreferen
         val selected = if(mode in photos.indices) mode else index
         val dim = prefs.getInt("wallpaper_dim",50).coerceIn(20,80)/100f
         veil.background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,intArrayOf(
-            Color.argb((255*dim*.32f).toInt(),3,9,17),
+            Color.argb((255*(.30f+dim*.35f)).toInt(),3,9,17),
             Color.argb((255*(.18f+dim*.58f)).toInt(),3,9,17),
             Color.argb((255*(.83f+dim*.16f)).toInt(),4,9,16)))
         sideVeil.background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(

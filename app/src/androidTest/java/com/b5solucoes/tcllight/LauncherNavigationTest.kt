@@ -70,7 +70,8 @@ class LauncherNavigationTest {
     }
 
     private fun key(code: Int) {
-        instrumentation.sendKeyDownUpSync(code)
+        instrumentation.uiAutomation.injectInputEvent(KeyEvent(KeyEvent.ACTION_DOWN,code),true)
+        instrumentation.uiAutomation.injectInputEvent(KeyEvent(KeyEvent.ACTION_UP,code),true)
         instrumentation.waitForIdleSync()
     }
 
