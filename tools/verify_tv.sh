@@ -9,3 +9,4 @@ collect_qa() {
 trap collect_qa EXIT
 adb shell settings put system system_locales pt-BR
 gradle :app:connectedDebugAndroidTest -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true --no-daemon --stacktrace
+

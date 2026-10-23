@@ -10,7 +10,7 @@ import android.graphics.drawable.Drawable
 /** Small vector glyphs; no emoji fonts, bitmap assets or animation loop. */
 internal class TvIcon(private val kind: Kind, color: Int) : Drawable() {
     enum class Kind { WIFI, CABLE, DEVICES, TV, HOME, REFRESH, CONTROLS, GRID, CLOSE,
-        CHEVRON, PALETTE, LEAF, STORAGE, PIN, EYE, INFO, IMAGE, SUN, SIZE, CHECK }
+        CHEVRON, PALETTE, LEAF, STORAGE, PIN, EYE, INFO, IMAGE, SUN, CLOUD, RAIN, LEFT, RIGHT, SIZE, CHECK }
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         this.color = color
         style = Paint.Style.STROKE
@@ -63,6 +63,15 @@ internal class TvIcon(private val kind: Kind, color: Int) : Drawable() {
                 canvas.drawRoundRect(x,y,x+6f,y+6f,1.5f,1.5f,paint)
             Kind.CLOSE -> { line(6f,6f,18f,18f); line(18f,6f,6f,18f) }
             Kind.CHEVRON -> { line(10f,6f,16f,12f); line(16f,12f,10f,18f) }
+            Kind.LEFT -> { line(20f,12f,4f,12f); line(4f,12f,10f,6f); line(4f,12f,10f,18f) }
+            Kind.RIGHT -> { line(4f,12f,20f,12f); line(20f,12f,14f,6f); line(20f,12f,14f,18f) }
+            Kind.CLOUD, Kind.RAIN -> {
+                path.moveTo(7f,17f); path.cubicTo(0f,17f,1f,8f,7f,9f)
+                path.cubicTo(8f,1f,19f,3f,19f,10f)
+                path.cubicTo(25f,10f,24f,17f,18f,17f); path.close()
+                canvas.drawPath(path,paint)
+                if(kind == Kind.RAIN) { line(8f,20f,7f,22f); line(13f,20f,12f,22f); line(18f,20f,17f,22f) }
+            }
             Kind.PALETTE -> {
                 canvas.drawCircle(12f,12f,9f,paint)
                 canvas.drawCircle(8f,9f,1f,paint); canvas.drawCircle(13f,6f,1f,paint)

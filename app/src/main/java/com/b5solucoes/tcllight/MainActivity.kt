@@ -10,7 +10,6 @@ import android.content.pm.ResolveInfo
 import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
-import android.hardware.input.InputManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -28,7 +27,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
 
-/** Native, offline TV Home. Background work never blocks remote-control dispatch. */
+/** Native TV Home. Optional weather and catalog work never block remote-control dispatch. */
 class MainActivity : Activity() {
     private data class TvApp(val name: String, val packageName: String, val component: ComponentName)
     private data class ArtworkBinding(val card: View, val image: ImageView, val placeholder: View,
@@ -59,12 +58,33 @@ class MainActivity : Activity() {
     private lateinit var networkLabel: TextView
     private lateinit var networkIcon: ImageView
     private lateinit var deviceLabel: TextView
+    private lateinit var weatherLabel: TextView
+    private lateinit var weatherIcon: ImageView
+    private lateinit var orderLabel: TextView
+    private lateinit var controlHint: TextView
     private lateinit var timeLabel: TextView
     private lateinit var dateLabel: TextView
     private lateinit var centralButton: View
     private var wallpapers: WallpaperDeck? = null
     private var panel: LauncherPanel? = null
     private var panelBack: (() -> Unit)? = null
+    private var activePanel = ""
+    private var videoInputs: List<TvSource> = emptyList()
+    private var inputsLoading = false
+    private var inputsAgain = false
+    private val tvSources by lazy { TvSources(this, handler, ::refreshInputs) }
+    private val weather by lazy { WeatherFeed(prefs, handler) { snapshot ->
+        setTextIfChanged(weatherLabel, snapshot?.label(System.currentTimeMillis()) ?: "Clima indisponível")
+        val icon = when (snapshot?.code) {
+            0 -> TvIcon.Kind.SUN
+            51, 53, 55, 61, 63, 65, 80, 81, 82, 95, 96, 99 -> TvIcon.Kind.RAIN
+            else -> TvIcon.Kind.CLOUD
+        }
+        weatherIcon.setImageDrawable(TvIcon(icon, ui.accent))
+    } }
+    private data class MoveSession(val packageName: String, val lane: String, var ids: List<String>)
+    private var moving: MoveSession? = null
+    private var consumeKeyUp = KeyEvent.KEYCODE_UNKNOWN
     private val homeViews = LinkedHashMap<String,View>()
     private val navViews = ArrayList<View>()
     private val topViews = ArrayList<View>()
@@ -84,9 +104,8 @@ class MainActivity : Activity() {
     private var userNavigated = false
     private var packageReceiverRegistered = false
     private var networkRegistered = false
-    private var inputRegistered = false
     private val clockFormat = SimpleDateFormat("HH:mm",locale)
-    private val dateFormat = SimpleDateFormat("EEE, d MMM",locale)
+    private val dateFormat = SimpleDateFormat("EEE, d 'de' MMM",locale)
 
     private val clockUpdate = object : Runnable {
         override fun run() {
@@ -112,12 +131,6 @@ class MainActivity : Activity() {
             handler.post { if(foreground) refreshStatus() }
         }
     }
-    private val inputEvents = object : InputManager.InputDeviceListener {
-        override fun onInputDeviceAdded(id: Int) { refreshStatus() }
-        override fun onInputDeviceRemoved(id: Int) { refreshStatus() }
-        override fun onInputDeviceChanged(id: Int) { refreshStatus() }
-    }
-
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
         window.statusBarColor = ui.base
@@ -144,19 +157,24 @@ class MainActivity : Activity() {
         refreshStatus()
         wallpapers?.onForeground()
         registerStatusListeners()
+        tvSources.start()
+        refreshInputs()
+        weather.start()
         if(appsDirty) refresh()
         if(usageDirty) { usageDirty = false; renderApps() }
         requestArtworkUpdate()
     }
 
     override fun onStop() {
+        finishMoving(true)
         foreground = false
         handler.removeCallbacks(clockUpdate)
         wallpapers?.onBackground()
         val cm = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
         if(networkRegistered) { try { cm.unregisterNetworkCallback(networkEvents) } catch(_: Exception) {} }
-        if(inputRegistered) (getSystemService(INPUT_SERVICE) as InputManager).unregisterInputDeviceListener(inputEvents)
-        networkRegistered = false; inputRegistered = false
+        tvSources.stop()
+        weather.stop()
+        networkRegistered = false
         super.onStop()
     }
 
@@ -166,6 +184,7 @@ class MainActivity : Activity() {
         scanner.shutdownNow()
         artwork.close()
         wallpapers?.close()
+        weather.close()
         super.onDestroy()
     }
 
@@ -177,15 +196,33 @@ class MainActivity : Activity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        finishMoving(true)
         closePanel()
         listScroll.smoothScrollTo(0,0)
         (topViews.firstOrNull() ?: centralButton).requestFocus()
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_UP && event.keyCode == consumeKeyUp) {
+            consumeKeyUp = KeyEvent.KEYCODE_UNKNOWN; return true
+        }
+        if (moving != null) {
+            val code = event.keyCode
+            if (code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                if (event.action == KeyEvent.ACTION_DOWN) moveSelection(if (code == KeyEvent.KEYCODE_DPAD_LEFT) -1 else 1)
+                return true
+            }
+            if (code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN) return true
+            if (code in intArrayOf(KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_BACK)) {
+                if (event.action == KeyEvent.ACTION_DOWN) {
+                    finishMoving(code != KeyEvent.KEYCODE_BACK); consumeKeyUp = code
+                }
+                return true
+            }
+        }
         if(event.action == KeyEvent.ACTION_DOWN) {
             if(event.keyCode == KeyEvent.KEYCODE_MENU) {
-                if(event.repeatCount == 0) { if(panel == null) showActionCenter() else closePanel() }
+                if(event.repeatCount == 0) { finishMoving(true); if(panel == null) showActionCenter() else closePanel() }
                 return true
             }
             if(event.keyCode in intArrayOf(KeyEvent.KEYCODE_DPAD_UP,KeyEvent.KEYCODE_DPAD_DOWN,
@@ -196,7 +233,8 @@ class MainActivity : Activity() {
 
     @Deprecated("Legacy Android TV back handling")
     override fun onBackPressed() {
-        if(panel != null) { val back = panelBack; if(back != null) back() else closePanel() }
+        if (moving != null) finishMoving(false)
+        else if(panel != null) { val back = panelBack; if(back != null) back() else closePanel() }
         else {
             listScroll.smoothScrollTo(0,0)
             (topViews.firstOrNull() ?: centralButton).requestFocus()
@@ -219,43 +257,36 @@ class MainActivity : Activity() {
 
         val nav = LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL; clipChildren = false; clipToPadding = false
+            setPadding(dp(42), dp(10), dp(42), dp(10))
+            background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(Color.argb(225, 8, 17, 27), Color.argb(110, 8, 17, 27)))
         }
-        homeLayer.addView(nav,lp(-1,dp(68),42,8,42))
-        val brand = LinearLayout(this).apply {
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(5),dp(4),dp(12),dp(4))
+        homeLayer.addView(nav,lp(-1,dp(76)))
+        val climate = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+        weatherIcon = ImageView(this).apply { setImageDrawable(TvIcon(TvIcon.Kind.CLOUD, ui.accent)) }
+        climate.addView(weatherIcon,lp(dp(30),dp(30),0,0,12))
+        val climateText = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        climateText.addView(ui.text("Garrafão do Norte",12f,ui.muted).apply { maxLines = 1 })
+        weatherLabel = ui.text("Clima indisponível",14f,medium=true).apply {
+            tag = "header:weather"; maxLines = 1; ellipsize = TextUtils.TruncateAt.END
         }
-        brand.addView(ImageView(this).apply {
-            background = ui.surface(ui.accent,10)
-            setImageDrawable(TvIcon(TvIcon.Kind.HOME,Color.rgb(17,46,44)))
-            setPadding(dp(8),dp(8),dp(8),dp(8))
-        },lp(dp(34),dp(34),0,0,10))
-        val brandText = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        brandText.addView(ui.text("TCL Light",17.5f,medium=true).apply { maxLines = 1 })
-        brandText.addView(ui.text("TELA INICIAL",8f,ui.muted).apply { letterSpacing = .16f },
-            lp(-2,-2,0,4))
-        brand.addView(brandText,lp(dp(100),-2))
-        styleHome(brand,"nav:home",true)
-        brand.setOnClickListener {
-            listScroll.smoothScrollTo(0,0); (topViews.firstOrNull() ?: centralButton).requestFocus()
-        }
-        nav.addView(brand,lp(-2,dp(48)))
-        navViews.add(brand)
-        nav.addView(View(this),LinearLayout.LayoutParams(0,1,1f))
-
-        val clock = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.END }
-        timeLabel = ui.text("--:--",23f,medium=true)
-        dateLabel = ui.text("",9.5f,ui.muted)
+        climateText.addView(weatherLabel,lp(-1,-2,0,3))
+        climate.addView(climateText,lp(dp(184),-2))
+        nav.addView(climate,lp(dp(230),-2))
+        nav.addView(View(this).apply { setBackgroundColor(Color.argb(55,190,215,227)) },lp(dp(1),dp(30),14,0,20))
+        val clock = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+        timeLabel = ui.text("--:--",26f,medium=true).apply { tag = "header:time"; maxLines = 1 }
+        dateLabel = ui.text("",11.5f,ui.muted).apply { tag = "header:date"; maxLines = 1 }
         clock.addView(timeLabel)
-        clock.addView(dateLabel,lp(-2,-2,0,3))
-        nav.addView(clock,lp(dp(104),-2,0,0,19))
+        clock.addView(dateLabel,lp(-2,-2,12))
+        nav.addView(clock,LinearLayout.LayoutParams(0,-2,1f))
         networkLabel = ui.text("Rede",11f)
         networkIcon = ImageView(this)
         val net = navControl("nav:wifi",TvIcon.Kind.WIFI,"Conexão de rede",networkLabel,networkIcon) { openWifiSettings() }
-        nav.addView(net,lp(dp(88),dp(39),0,0,9)); navViews.add(net)
-        deviceLabel = ui.text("",11f,ui.muted)
-        val devices = navControl("nav:devices",TvIcon.Kind.DEVICES,"Controles e dispositivos",deviceLabel) { showDevices() }
-        nav.addView(devices,lp(dp(60),dp(39),0,0,9)); navViews.add(devices)
+        nav.addView(net,lp(dp(80),dp(39),8,0,8)); navViews.add(net)
+        deviceLabel = ui.text("Entradas",11f)
+        val devices = navControl("nav:inputs",TvIcon.Kind.CABLE,"Entradas de vídeo",deviceLabel) { showInputs() }
+        nav.addView(devices,lp(dp(92),dp(39),0,0,8)); navViews.add(devices)
         centralButton = navControl("nav:central",TvIcon.Kind.CONTROLS,"Central de ações",ui.text("Central",11f,medium=true)) { showActionCenter() }
         nav.addView(centralButton,lp(dp(103),dp(39))); navViews.add(centralButton)
 
@@ -273,7 +304,9 @@ class MainActivity : Activity() {
         listScroll.viewTreeObserver.addOnScrollChangedListener { requestArtworkUpdate() }
         val sceneSpace = ((resources.configuration.screenHeightDp-440)*.38f).toInt().coerceIn(32,110)
         column.addView(View(this),lp(-1,dp(sceneSpace)))
-        column.addView(section("Mais utilizados","Pelo seu uso"),lp(-1,dp(28),0,0,3,6))
+        val usedHeader = section("Mais utilizados","Pelo seu uso")
+        orderLabel = (usedHeader as LinearLayout).getChildAt(1) as TextView
+        column.addView(usedHeader,lp(-1,dp(28),0,0,3,6))
         favoriteStrip = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER
             clipChildren = false; clipToPadding = false
@@ -294,7 +327,8 @@ class MainActivity : Activity() {
         column.addView(appGrid,lp(-1,-2))
         favorites.addView(ui.text("Carregando aplicativos…",12f,ui.muted),lp(-1,dp(110)))
         val footer = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-        footer.addView(ui.text("OK  Abrir    ·    Segure OK  Opções",9.5f,ui.quiet),
+        controlHint = ui.text("OK  Abrir    ·    Segure OK  Mover e opções",9.5f,ui.quiet).apply { tag = "home:hint" }
+        footer.addView(controlHint,
             LinearLayout.LayoutParams(0,-2,1f))
         footer.addView(ui.text("MENU  Central de ações",9.5f,ui.muted))
         homeLayer.addView(footer,lp(-1,dp(27),46,0,46,5))
@@ -329,7 +363,7 @@ class MainActivity : Activity() {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
             clipChildren = false; clipToPadding = false
-            setPadding(dp(5),dp(5),dp(5),dp(7))
+            setPadding(dp(5),dp(5),dp(5),dp(5))
             contentDescription = app.name
         }
         val artHeight = (widthDp-10)*9/16
@@ -354,13 +388,13 @@ class MainActivity : Activity() {
             setMargins(0,dp(5),dp(5),0)
         })
         card.addView(surface,lp(-1,dp(artHeight)))
-        card.addView(ui.text(app.name,if(large)12f else 11.5f,ui.ink,large).apply {
-            maxLines = 1; ellipsize = TextUtils.TruncateAt.END; gravity = Gravity.CENTER
-        },lp(-1,dp(17),0,8))
         val key = (if(large) "top:" else "grid:") + app.packageName
         styleHome(card,key,true)
+        if (moving?.packageName == app.packageName && moving?.lane == (if (large) "top" else "grid")) {
+            card.background = ui.surface(Color.argb(65, 135, 225, 207), 14, ui.accent)
+        }
         card.setOnClickListener { open(app) }
-        card.setOnLongClickListener { showAppMenu(app); true }
+        card.setOnLongClickListener { showAppMenu(app, if (large) "top" else "grid"); true }
         return card
     }
 
@@ -368,12 +402,13 @@ class MainActivity : Activity() {
     private fun renderApps() {
         val keep = (currentFocus?.tag as? String)?.takeIf { panel == null } ?: lastHomeFocus
         val hidden = hiddenApps()
-        val visible = mediaApps.filterNot { it.packageName in hidden }
-        val selected = rankedApps(visible).take(prefs.getInt("top_count",7).coerceIn(5,10))
+        val visible = ordered(mediaApps.filterNot { it.packageName in hidden }, "grid")
+        val selected = ordered(rankedApps(visible), "top").take(prefs.getInt("top_count",7).coerceIn(5,10))
         val scale = prefs.getInt("icon_scale",1)
         val pinKey = pinnedApps().sorted().joinToString()
-        val nextTop = selected.joinToString { it.packageName } + "|" + scale + "|" + pinKey + "|" + catalogRevision
-        val nextGrid = visible.joinToString { it.packageName + it.name } + "|" + scale + "|" + pinKey + "|" + catalogRevision
+        val moveKey = moving?.let { it.lane + it.packageName } ?: ""
+        val nextTop = selected.joinToString { it.packageName } + "|" + scale + "|" + pinKey + "|" + catalogRevision + "|" + if (moving?.lane == "top") moveKey else ""
+        val nextGrid = visible.joinToString { it.packageName + it.name } + "|" + scale + "|" + pinKey + "|" + catalogRevision + "|" + if (moving?.lane == "grid") moveKey else ""
         val changed = firstData || topSignature != nextTop || gridSignature != nextGrid
         val topWidth = when(scale) { 0 -> 134; 2 -> 174; else -> 152 }
         if(firstData || topSignature != nextTop) {
@@ -416,6 +451,7 @@ class MainActivity : Activity() {
             }
         }
         setTextIfChanged(appCount,visible.size.toString() + if(visible.size == 1) " aplicativo" else " aplicativos")
+        setTextIfChanged(orderLabel, if (orderFor("top").isEmpty()) "Pelo seu uso" else "Sua ordem")
         wireNavigation(columns)
         homeLayer.post { requestArtworkUpdate() }
         val initial = firstData
@@ -511,10 +547,6 @@ class MainActivity : Activity() {
             else cm.registerNetworkCallback(NetworkRequest.Builder().build(),networkEvents)
             networkRegistered = true
         } catch(_: Exception) {}
-        try {
-            (getSystemService(INPUT_SERVICE) as InputManager).registerInputDeviceListener(inputEvents,handler)
-            inputRegistered = true
-        } catch(_: Exception) {}
     }
 
     private fun setTextIfChanged(label: TextView,value: String) { if(label.text.toString() != value) label.text = value }
@@ -537,9 +569,6 @@ class MainActivity : Activity() {
         })
         networkIcon.setImageDrawable(TvIcon(if(network == ConnectivityManager.TYPE_ETHERNET)
             TvIcon.Kind.CABLE else TvIcon.Kind.WIFI,if(network == -1) ui.quiet else ui.accent))
-        val count = controllers().size
-        setTextIfChanged(deviceLabel,if(count > 0) count.toString() else "0")
-        (deviceLabel.parent as? View)?.contentDescription = count.toString() + " dispositivos de entrada detectados"
     }
 
     private fun wifiState() = when(networkType()) {
@@ -549,16 +578,27 @@ class MainActivity : Activity() {
         else -> "Rede conectada"
     }
 
-    private fun controllers(): List<String> = try {
-        InputDevice.getDeviceIds().toList().mapNotNull { InputDevice.getDevice(it) }.filter { device ->
-            !device.isVirtual && (device.supportsSource(InputDevice.SOURCE_DPAD) ||
-                device.supportsSource(InputDevice.SOURCE_GAMEPAD) ||
-                device.supportsSource(InputDevice.SOURCE_KEYBOARD) ||
-                device.supportsSource(InputDevice.SOURCE_MOUSE))
-        }.map { it.name }.distinct()
-    } catch(_: Exception) { emptyList() }
+    private fun refreshInputs() {
+        if (!foreground || isDestroyed) return
+        if (inputsLoading) { inputsAgain = true; return }
+        inputsLoading = true
+        scanner.execute {
+            val entries = tvSources.read()
+            handler.post {
+                inputsLoading = false
+                if (isDestroyed) return@post
+                videoInputs = entries
+                if (foreground && activePanel == "inputs") {
+                    val focus = currentFocus?.tag as? String
+                    showInputs(focus)
+                }
+                if (inputsAgain) { inputsAgain = false; refreshInputs() }
+            }
+        }
+    }
 
     private fun newPanel(title: String,subtitle: String,back: (() -> Unit)? = null): LauncherPanel {
+        activePanel = ""
         if(panel == null) returnFocus = (currentFocus?.tag as? String) ?: lastHomeFocus
         panel?.let { frame.removeView(it) }
         homeLayer.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
@@ -574,7 +614,7 @@ class MainActivity : Activity() {
     private fun closePanel() {
         val old = panel ?: return
         old.animate().cancel()
-        frame.removeView(old); panel = null; panelBack = null
+        frame.removeView(old); panel = null; panelBack = null; activePanel = ""
         homeLayer.descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
         homeLayer.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
         (homeViews[returnFocus] ?: topViews.firstOrNull() ?: centralButton).requestFocus()
@@ -582,10 +622,9 @@ class MainActivity : Activity() {
 
     private fun showActionCenter(focus: String? = null) {
         val sheet = newPanel("Central de ações","Conexões e atalhos da sua TV")
-        val inputs = controllers()
         sheet.grid(listOf(
             PanelAction("action:wifi","Rede",wifiState(),TvIcon.Kind.WIFI,networkType() != -1) { openWifiSettings() },
-            PanelAction("action:devices","Dispositivos",inputs.size.toString() + " entradas detectadas",TvIcon.Kind.DEVICES) { showDevices() },
+            PanelAction("action:inputs","Entradas","HDMI, antena e vídeo",TvIcon.Kind.CABLE) { showInputs() },
             PanelAction("action:tv","TV e canais","Abrir televisão",TvIcon.Kind.TV) { openTv() },
             PanelAction("action:eco","Modo leve",if(economy()) "Ativado" else "Desativado",TvIcon.Kind.LEAF,economy()) {
                 toggleEconomy(); showActionCenter("action:eco")
@@ -600,15 +639,13 @@ class MainActivity : Activity() {
         sheet.caption("Mais controles")
         sheet.row(PanelAction("action:customize","Personalizar aparência","Fundos, cartões e mais utilizados",TvIcon.Kind.PALETTE) { showPreferences() })
         sheet.row(PanelAction("action:settings","Configurações da TV","Imagem, áudio e sistema",TvIcon.Kind.CONTROLS) { openSettings() })
+        sheet.row(PanelAction("action:bluetooth","Controles e Bluetooth","Parear acessórios",TvIcon.Kind.DEVICES) { openPeripheralSettings() })
         sheet.row(PanelAction("action:home","Tela inicial padrão",currentHome(),TvIcon.Kind.HOME) { showHomeAssistant() })
         sheet.row(PanelAction("action:storage","Armazenamento","Gerenciar espaço na TV",TvIcon.Kind.STORAGE) { openStorageSettings() })
         sheet.row(PanelAction("action:hidden","Aplicativos ocultos",hiddenApps().size.toString() + " ocultos por você",TvIcon.Kind.EYE) { showHiddenApps() })
         sheet.row(PanelAction("action:refresh","Atualizar aplicativos","Procurar instalações e alterações",TvIcon.Kind.REFRESH) {
             artwork.invalidate(); topSignature = ""; gridSignature = ""; refresh()
             Toast.makeText(this,"Atualizando aplicativos…",Toast.LENGTH_SHORT).show()
-        })
-        sheet.row(PanelAction("action:hdmi","Entradas HDMI","Use INPUT / SOURCE no controle",TvIcon.Kind.CABLE) {
-            showInfo("Entradas HDMI","Use o botão INPUT ou SOURCE do controle da TCL para escolher TV, HDMI 1 ou HDMI 2.",TvIcon.Kind.TV,"Abrir TV",::openTv)
         })
         sheet.focusAction(focus)
     }
@@ -621,15 +658,16 @@ class MainActivity : Activity() {
         sheet.focusAction()
     }
 
-    private fun showDevices() {
-        val entries = controllers()
-        val sheet = newPanel("Dispositivos","Controles, teclados e outros periféricos") { showActionCenter("action:devices") }
-        sheet.caption("Entradas detectadas")
-        sheet.paragraph(if(entries.isEmpty()) "Nenhum dispositivo de entrada identificado."
-            else entries.joinToString("\n\n"))
-        sheet.paragraph("Esta lista mostra entradas reconhecidas pelo Android. Para consultar acessórios Bluetooth pareados ou conectar outro controle, abra os ajustes.")
-        sheet.row(PanelAction("devices:bluetooth","Ajustes Bluetooth","Parear e gerenciar acessórios",TvIcon.Kind.DEVICES) { openPeripheralSettings() })
-        sheet.focusAction()
+    private fun showInputs(focus: String? = null) {
+        val sheet = newPanel("Entradas","Fontes de vídeo da sua TV") { showActionCenter("action:inputs") }
+        activePanel = "inputs"
+        if (videoInputs.isEmpty()) sheet.paragraph(if (inputsLoading) "Consultando as entradas da TV…"
+            else "O sistema não disponibilizou a lista de entradas. Use o seletor da TV para escolher a fonte.")
+        for (entry in videoInputs) sheet.row(PanelAction("input:" + entry.id, entry.label, entry.detail,
+            if (entry.passthrough) TvIcon.Kind.CABLE else TvIcon.Kind.TV,
+            entry.state == android.media.tv.TvInputManager.INPUT_STATE_CONNECTED) { openInput(entry) })
+        sheet.row(PanelAction("inputs:native", "Seletor de entradas da TV", "Abrir menu nativo", TvIcon.Kind.TV) { openInputSelector() })
+        sheet.focusAction(focus)
     }
 
     private fun showPreferences(focus: String? = null) {
@@ -659,6 +697,11 @@ class MainActivity : Activity() {
             TvIcon.Kind.LEAF,economy()) { toggleEconomy(); showPreferences("pref:eco") })
         sheet.paragraph("O modo leve mantém o fundo fixo e remove as animações de foco.")
         sheet.row(PanelAction("pref:hidden","Aplicativos ocultos","Restaurar na tela inicial",TvIcon.Kind.EYE) { showHiddenApps(true) })
+        sheet.row(PanelAction("pref:order","Restaurar organização","Mais utilizados pelo uso; aplicativos em ordem alfabética",TvIcon.Kind.REFRESH) {
+            prefs.edit().remove("order.top").remove("order.grid").apply()
+            renderApps(); showPreferences("pref:order")
+        })
+        sheet.paragraph("Clima de Garrafão do Norte: Open-Meteo (CC BY 4.0). Atualização aproximada a cada 45 minutos. A tela inicial continua disponível sem internet.")
         sheet.focusAction(focus)
     }
 
@@ -700,9 +743,15 @@ class MainActivity : Activity() {
         sheet.focusAction()
     }
 
-    private fun showAppMenu(app: TvApp) {
+    private fun showAppMenu(app: TvApp, lane: String) {
         val pin = app.packageName in pinnedApps()
-        val sheet = newPanel(app.name,"Opções do aplicativo")
+        val sheet = newPanel(app.name,if (lane == "top") "Organizar os mais utilizados" else "Organizar seus aplicativos")
+        val ids = laneApps(lane).map { it.packageName }
+        val index = ids.indexOf(app.packageName)
+        val moves = ArrayList<PanelAction>()
+        if (index > 0) moves.add(PanelAction("app:left","Mover à esquerda","Reorganizar pelo controle",TvIcon.Kind.LEFT) { startMoving(app, lane, -1) })
+        if (index >= 0 && index < ids.lastIndex) moves.add(PanelAction("app:right","Mover à direita","Reorganizar pelo controle",TvIcon.Kind.RIGHT) { startMoving(app, lane, 1) })
+        if (moves.isNotEmpty()) sheet.grid(moves)
         sheet.row(PanelAction("app:pin",if(pin) "Desafixar" else "Fixar nos mais utilizados",
             if(pin) "Ordenar novamente pelo uso" else "Manter no início da lista",TvIcon.Kind.PIN,pin) {
             val all = pinnedApps().toMutableSet()
@@ -719,7 +768,56 @@ class MainActivity : Activity() {
             try { startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).setData(Uri.parse("package:"+app.packageName))) }
             catch(_: Exception) { openSettings() }
         })
+        if (orderFor(lane).isNotEmpty()) sheet.row(PanelAction("app:auto", "Restaurar ordem desta área",
+            if (lane == "top") "Organizar pelo uso novamente" else "Organizar por nome novamente",TvIcon.Kind.REFRESH) {
+            prefs.edit().remove("order." + lane).apply(); renderApps(); closePanel()
+        })
         sheet.focusAction()
+    }
+
+    private fun orderFor(lane: String): List<String> = moving?.takeIf { it.lane == lane }?.ids
+        ?: AppOrdering.decode(prefs.getString("order." + lane, null))
+
+    private fun ordered(items: List<TvApp>, lane: String) = AppOrdering.apply(items, orderFor(lane)) { it.packageName }
+
+    private fun laneApps(lane: String): List<TvApp> {
+        val visible = mediaApps.filterNot { it.packageName in hiddenApps() }
+        return if (lane == "top") ordered(rankedApps(visible), "top")
+            .take(prefs.getInt("top_count", 7).coerceIn(5, 10)) else ordered(visible, "grid")
+    }
+
+    private fun startMoving(app: TvApp, lane: String, delta: Int) {
+        closePanel()
+        moving = MoveSession(app.packageName, lane, laneApps(lane).map { it.packageName })
+        setTextIfChanged(controlHint, "← →  Mover    ·    OK  Salvar    ·    Voltar  Cancelar")
+        moveSelection(delta)
+    }
+
+    private fun moveSelection(delta: Int) {
+        val session = moving ?: return
+        session.ids = AppOrdering.move(session.ids, session.packageName, delta)
+        lastHomeFocus = session.lane + ":" + session.packageName
+        renderApps()
+        homeViews[lastHomeFocus]?.requestFocus()
+    }
+
+    private fun finishMoving(save: Boolean) {
+        val session = moving ?: return
+        if (save) prefs.edit().putString("order." + session.lane, AppOrdering.encode(session.ids)).apply()
+        moving = null
+        setTextIfChanged(controlHint, "OK  Abrir    ·    Segure OK  Mover e opções")
+        renderApps()
+        homeViews[session.lane + ":" + session.packageName]?.requestFocus()
+    }
+
+    private fun openInput(entry: TvSource) {
+        try { startActivity(entry.intent()) }
+        catch (_: Exception) { openInputSelector() }
+    }
+
+    private fun openInputSelector() {
+        try { startActivity(Intent(Intent.ACTION_TV_INPUT_BUTTON).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        catch (_: Exception) { openTv() }
     }
 
     private fun currentHome(): String = try {
@@ -915,8 +1013,18 @@ class MainActivity : Activity() {
     }
 
     private fun openTv() {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, android.media.tv.TvContract.Channels.CONTENT_URI)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            return
+        } catch (_: Exception) { }
         val pkgList = listOf("com.google.android.tv", "com.tcl.tv",
             "com.tcl.live", "com.mediatek.wwtv.tvcenter")
+        for (pkg in pkgList) try {
+            val intent = packageManager.getLeanbackLaunchIntentForPackage(pkg)
+                ?: packageManager.getLaunchIntentForPackage(pkg)
+            if (intent != null) { startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); return }
+        } catch (_: Exception) { }
         val tv = pkgList.firstNotNullOfOrNull { pkg ->
             mediaApps.firstOrNull { it.packageName == pkg }
         } ?: mediaApps.firstOrNull {

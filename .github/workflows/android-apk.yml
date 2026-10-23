@@ -1,8 +1,8 @@
-name: Compilar APK TCL Light
+name: Compilar e publicar TCL Light
 
 on:
   push:
-    branches: [main, premium-tv-v06]
+    branches: [main, premium-tv-v07, signed-releases]
   workflow_dispatch:
 
 concurrency:
@@ -10,58 +10,41 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   android-apk:
+    if: github.ref != 'refs/heads/signed-releases'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - name: Baixar projeto
         uses: actions/checkout@v4
-
       - name: Preparar Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-
       - name: Instalar Android SDK 35
         run: |
-          echo "SDK disponível em: $ANDROID_HOME"
           SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n 1)
-          test -n "$SDKMANAGER"
-          echo "Gerenciador: $SDKMANAGER"
           "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
-
-      # Mantém a chave debug entre builds quando o cache estiver disponível.
-      # Para distribuição definitiva, configurar uma assinatura release privada.
-      - name: Preservar assinatura de teste
-        uses: actions/cache@v4
-        with:
-          path: ~/.android/debug.keystore
-          key: tcl-light-debug-keystore-v1
-
       - name: Preparar Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
-
-      - name: Preparar cinco fotografias offline
+      - name: Preparar fotografias offline
         run: |
           python3 -m pip install --quiet pillow
           python3 tools/build_wallpapers.py
-
-      - name: Compilar APK
+      - name: Compilar launcher e testes
         run: gradle :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace
-
-      - name: Habilitar KVM para testes de TV
+      - name: Habilitar KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-
-      - name: Verificar navegação em Android TV 720p
+      - name: Verificar controle e organização em Android TV 720p
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 28
@@ -71,8 +54,7 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: bash tools/verify_tv.sh
-
-      - name: Guardar resultados dos testes
+      - name: Guardar resultados e telas
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -81,26 +63,60 @@ jobs:
             app/build/reports/androidTests/
             app/build/outputs/androidTest-results/
             dist/qa/
-
-      - name: Preparar arquivo para download
-        run: |
-          mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/TCL-Light-beta.apk
-          cp app/build/outputs/apk/debug/app-debug.apk dist/TCL-Light-0.6.0.apk
-
-      - name: Disponibilizar APK no GitHub Actions
+      - name: Preparar release sem assinatura e teste de atualização
+        run: python3 tools/prepare_unsigned.py
+      - name: Disponibilizar para assinatura privada
         uses: actions/upload-artifact@v4
         with:
-          name: TCL-Light-APK
-          path: dist/*.apk
+          name: TCL-Light-Unsigned
+          path: dist/unsigned/*
           if-no-files-found: error
           retention-days: 90
 
-      - name: Publicar APK na aba Releases
-        if: github.ref == 'refs/heads/main'
+  publish-signed:
+    if: github.ref == 'refs/heads/signed-releases'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    steps:
+      - name: Baixar publicação assinada
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Preparar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Preparar ferramentas Android
+        run: |
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n 1)
+          "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Bloquear pacote, versão ou certificado incorreto
+        run: python3 tools/verify_signed.py
+      - name: Habilitar KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Testar atualização real sobre a instalação existente
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 28
+          target: android-tv
+          arch: x86
+          profile: tv_720p
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: python3 tools/verify_upgrade.py
+      - name: Guardar prova da atualização
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TCL-Light-Upgrade-QA
+          path: dist/upgrade-qa/
+      - name: Publicar somente após a assinatura e a atualização passarem
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release view beta > /dev/null 2>&1 || gh release create beta --title 'TCL Light • Beta' --prerelease --notes 'TCL Light 0.6: nova central lateral, navegação para controle e imagens fora da thread de interface. Instale e teste antes de definir como Home. Não modifica o firmware.'
-          gh release upload beta dist/*.apk --clobber
-          gh release edit beta --title 'TCL Light 0.6 • Beta' --notes-file RELEASE_NOTES.md
+        run: bash tools/publish_signed.sh

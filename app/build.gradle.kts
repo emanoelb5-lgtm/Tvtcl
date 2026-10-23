@@ -11,8 +11,9 @@ android {
         applicationId = "com.b5solucoes.tcllight"
         minSdk = 23
         targetSdk = 28
-        versionCode = 6
-        versionName = "0.6.0"
+        // CI builds an internal higher-code APK only to verify an actual in-place update.
+        versionCode = providers.gradleProperty("verificationVersionCode").orNull?.toInt() ?: 7
+        versionName = "0.7.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

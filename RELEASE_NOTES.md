@@ -1,11 +1,14 @@
-# TCL Light 0.6
+# TCL Light 0.7.0
 
-- Central de ações lateral com atalhos grandes para rede, dispositivos, TV e modo leve.
-- Nova barra superior, ícones vetoriais, cartões com banners dos aplicativos e foco visível para o controle.
-- Fundos 16:9 offline, com transição suave; personalização e menus no mesmo padrão visual.
-- Carregamento de imagens fora da interface, apenas para cartões visíveis, com cache limitado.
-- Grade preservada ao retornar de outros apps; atualização por eventos e tarefas pausadas quando a tela fica invisível.
+- Nova assinatura permanente, com certificado público e verificação que bloqueia uma assinatura diferente.
+- Cartões sem o nome repetido abaixo do ícone.
+- Segure OK para reorganizar em Mais utilizados e Seus aplicativos. Setas movem, OK salva e Voltar cancela.
+- Ordem manual salva por área, com opção de restaurar a organização automática.
+- Faixa superior reorganizada com clima de Garrafão do Norte, hora, data, rede, entradas e Central.
+- Entradas de vídeo consultadas pela API da TV, respeitando fontes ocultadas e sem exibir teclados/mouses.
+- Atalhos para a TV nativa e para o seletor nativo de fontes.
+- Testes de navegação e teste real de atualização sobre a instalação existente em Android TV 720p.
 
-Baixe **TCL-Light-0.6.0.apk** nos arquivos desta versão. Mantém o pacote e o cache de assinatura da beta anterior.
+**Migração única:** desinstale a beta antiga antes de instalar a 0.7.0. A chave mudou nesta versão e as preferências da beta antiga serão apagadas. Depois, mantenha as próximas versões assinadas com o certificado permanente para atualizar diretamente por cima da 0.7.0.
 
-A validação automatizada cobre navegação e comportamento em emulador Android TV 720p. O desempenho no aparelho físico depende do hardware e do firmware da TV.
+Mantenha o launcher original da TV instalado. O comportamento das entradas e a escolha de Home dependem das opções expostas pelo firmware.

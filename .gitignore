@@ -5,3 +5,8 @@ build/
 local.properties
 *.iml
 .DS_Store
+*.p12
+*.jks
+*.keystore
+signing-private/
+dist/

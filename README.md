@@ -1,41 +1,48 @@
-# TCL Light 0.6 — Android TV
+# TCL Light 0.7.0
 
-Launcher nativo e offline para Android TV, com atenção à TCL 40S6500FS.
+Launcher nativo em Kotlin para Android TV, com foco em controle remoto e TVs com pouca memória.
 
-[**Baixar APK mais recente**](../../releases/download/beta/TCL-Light-beta.apk) · [Releases](../../releases/tag/beta) · [Compilações e testes](../../actions)
+[Baixar TCL-Light-0.7.0.apk](https://github.com/emanoelb5-lgtm/Tvtcl/releases/download/v0.7.0/TCL-Light-0.7.0.apk) · [Versões](https://github.com/emanoelb5-lgtm/Tvtcl/releases)
 
-## Nova interface
+## Instalação e atualizações
 
-- Central de ações em painel lateral, com atalhos grandes para rede, dispositivos, TV e modo leve; armazenamento, personalização e demais ações logo abaixo.
-- Barra superior compacta, ícones vetoriais consistentes, tipografia legível à distância e foco com contorno claro e animação curta.
-- Cartões de aplicativos em 16:9 aproveitam banners publicados pelos próprios apps. Quando não há banner, usam o ícone original.
-- Cinco fotografias reais 1280×720 WebP, embaladas no APK, com transição suave a cada dois minutos e escurecimento ajustável. Sem frases sobre o fundo.
-- Personalização, opções de apps e assistente Home seguem o mesmo padrão visual da central.
+A versão 0.7.0 inicia a assinatura permanente. As betas antigas usaram certificados de teste diferentes. Desinstale a beta antiga uma única vez, instale a 0.7.0 e escolha novamente a tela inicial. Isso apaga as preferências locais da beta anterior. Mantenha o launcher original da TV instalado.
 
-## Fluidez
+As próximas versões devem manter o pacote `com.b5solucoes.tcllight`, a mesma chave privada e um código de versão maior. Elas poderão ser instaladas sobre esta versão.
 
-- Fundos e miniaturas são carregados fora da thread da interface. Só os cartões visíveis carregam imagens; os que saem da tela liberam sua imagem. Miniaturas limitadas a 320×180 ou ícones 128×128, com cache de 4 MiB compartilhado pelas duas seções.
-- Retornar de outro app não recria toda a tela: a grade permanece e a linha de mais utilizados só muda quando sua ordem muda.
-- Instalações e alterações de apps, rede e periféricos atualizam por eventos; sem varredura periódica de aplicativos.
-- Relógio atualizado por minuto. Fundos e observadores de estado param quando a tela fica invisível; executores são encerrados junto com a Activity.
-- Modo leve desativa o zoom de foco e a rotação de fotos. Ativado inicialmente quando o Android identifica pouca RAM; pode ser alterado na central.
-- Interface com Views nativas, sem WebView, vídeos de fundo, blur ou novas bibliotecas de execução. Bibliotecas AndroidX de teste entram apenas no APK de instrumentação.
+O certificado público fica em [signing/tcl-light-release.pem](signing/tcl-light-release.pem); a impressão SHA-256 é registrada em [signing/certificate.sha256](signing/certificate.sha256). A chave privada é mantida pelo proprietário em backup privado, fora do repositório e dos caches do GitHub.
 
-## Aplicativos e controle
+## Uso pelo controle
 
-- Mostra apps lançáveis instalados pelo usuário, inclusive gerenciadores de arquivos, e streamings pré-instalados. Demais serviços e configurações de sistema ficam fora da grade.
-- Mais utilizados são ordenados pelas aberturas feitas pelo launcher. OK longo permite fixar, ocultar e abrir informações do app. Os dados ficam locais.
-- MENU abre/fecha a central; Voltar retorna um nível no painel e restaura o foco da tela inicial ao fechá-lo. Setas percorrem todos os controles sem escapar do painel.
-- Assistente para escolher o launcher como Home, conforme suporte do firmware. Não requer root nem desativa a tela original.
+- OK abre um aplicativo.
+- Segurar OK abre opções e ações de mover à esquerda/direita.
+- Durante a reorganização, esquerda/direita movem, OK salva e Voltar cancela.
+- As posições são salvas separadamente em Mais utilizados e Seus aplicativos. Após a primeira organização manual, a ordem escolhida tem prioridade; o menu permite restaurar a ordenação automática.
+- MENU abre e fecha a Central; Voltar retorna um nível.
+- A faixa superior reúne clima de Garrafão do Norte, hora, data, rede, entradas e Central. Não há botão de marca nem nomes repetidos sob os cartões.
 
-## Compilação e verificação
+## Entradas e TV
 
-GitHub Actions compila o aplicativo e o APK de instrumentação e executa seis cenários em Android TV API 28, 720p: foco com D-pad; navegação de personalização; ocultar/restaurar um app de arquivos; retorno de outro aplicativo sem recriar a grade; modo leve e aberturas repetidas; capturas nativas 16:9. Relatórios, capturas e diagnósticos ficam no artefato `TCL-Light-TV-QA`. A publicação da beta ocorre apenas em `main`, após os testes.
+As fontes são consultadas com `TvInputManager`: entradas HDMI, vídeo e sintonizadores disponibilizados pelo firmware. Entradas ocultadas nos ajustes são respeitadas. Teclados, mouses e nomes de dispositivos de entrada não aparecem nessa lista. A troca usa URIs do `TvContract` e oferece acesso ao seletor nativo quando o firmware não expõe a fonte.
 
-`applicationId=com.b5solucoes.tcllight` · `versionCode=6` · `versionName=0.6.0` · `minSdk=23` · `targetSdk=28` · `compileSdk=35`.
+TV e canais abre o aplicativo nativo de televisão. Não há reprodução de TV atrás do launcher nesta versão; o acesso à imagem e ao áudio por terceiros depende do firmware.
 
-A assinatura de depuração continua usando o mesmo cache das versões anteriores. O cache pode expirar; uma assinatura release privada ainda é necessária para distribuição definitiva. Não é uma versão destinada à Play Store atual.
+## Desempenho e clima
 
-Para HDMI, use INPUT/SOURCE do controle: a troca direta depende das permissões do fabricante. O painel lista **dispositivos de entrada detectados**, não todos os acessórios Bluetooth pareados. Abra os ajustes para parear ou consultar acessórios.
+Views nativas, ícones vetoriais, imagens WebP 16:9 offline, decodificação fora da interface e cache limitado. A grade é reaproveitada ao retornar de outro app. Instalações, rede e fontes de vídeo usam eventos; o launcher não varre os aplicativos a cada poucos segundos. O modo leve remove animações e mantém o fundo fixo.
 
-As fotos são preparadas na compilação a partir do Unsplash; consulte [autoria e licença](NOTICE_WALLPAPERS.md). O aplicativo não precisa de Internet para funcionar. O comportamento e o desempenho no aparelho físico ainda dependem do firmware e do hardware da TV.
+O clima usa HTTPS/Open-Meteo, coordenadas fixas da sede de Garrafão do Norte (-1.93, -47.05), cache de 45 minutos, limite de tamanho e timeout. Não pede localização. Ao ficar sem internet, os aplicativos e o launcher continuam funcionando; dados antigos são identificados ou substituídos por “Clima indisponível”.
+
+Fonte das coordenadas: [IBGE, mapa municipal](https://geoftp.ibge.gov.br/cartas_e_mapas/mapas_municipais/colecao_de_mapas_municipais/2020/PA/garrafao_do_norte/1503077_MM.pdf). Clima: [Open-Meteo, CC BY 4.0](https://open-meteo.com/).
+
+## Compilação e publicação
+
+1. O workflow compila e testa o launcher em Android TV API 28, 1280×720.
+2. Gera APK release unsigned e um APK interno com código maior para testar a atualização; nenhum APK debug é distribuído.
+3. O proprietário assina com a chave permanente usando [tools/sign_release.py](tools/sign_release.py), em ambiente privado.
+4. A branch `signed-releases` contém somente material público de distribuição e o fonte; não contém a chave ou suas senhas.
+5. O workflow valida pacote, versões, hashes e certificado fixo. No emulador, instala 0.7.0, altera uma preferência, define Home e aplica a atualização interna com `adb install -r`. A publicação só ocorre se a instalação, a preferência e a escolha de Home forem preservadas.
+
+O APK interno de teste não é publicado em Releases. O resultado da verificação acompanha o APK público. Esses testes não substituem a validação no aparelho TCL físico.
+
+Veja [signing/README.md](signing/README.md) para preservar a assinatura nas próximas versões.

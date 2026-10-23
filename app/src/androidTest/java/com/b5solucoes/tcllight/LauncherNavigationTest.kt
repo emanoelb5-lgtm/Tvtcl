@@ -3,6 +3,7 @@ package com.b5solucoes.tcllight
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.ComponentName
 import android.graphics.Bitmap
 import android.os.Bundle
 import android.os.Looper
@@ -79,6 +80,99 @@ class LauncherNavigationTest {
         assertNotNull("Ação ausente: "+tag,target)
         onUi { target!!.requestFocus() }
         key(KeyEvent.KEYCODE_DPAD_CENTER)
+    }
+
+    private val samples get() = listOf("sample.files", "sample.video", "sample.music")
+    private fun seedOrderCatalog() = onUi {
+        val type = Class.forName("com.b5solucoes.tcllight.MainActivity\$TvApp")
+        val constructor = type.getDeclaredConstructor(String::class.java, String::class.java, ComponentName::class.java)
+            .apply { isAccessible = true }
+        val apps = samples.mapIndexed { index, id ->
+            constructor.newInstance("Aplicativo " + index, id, ComponentName(fixture, FixtureActivity::class.java.name))
+        }
+        MainActivity::class.java.getDeclaredField("mediaApps").apply { isAccessible = true }.set(screen, apps)
+        MainActivity::class.java.getDeclaredMethod("renderApps").apply { isAccessible = true }.invoke(screen)
+    }
+
+    private fun laneOrder(lane: String): List<String> = onUi {
+        val tags = ArrayList<String>()
+        fun visit(view: View) {
+            (view.tag as? String)?.takeIf { it.startsWith(lane + ":") }?.let { tags.add(it.substringAfter(':')) }
+            if (view is ViewGroup) for (i in 0 until view.childCount) visit(view.getChildAt(i))
+        }
+        visit(screen.findViewById(android.R.id.content))
+        tags
+    }
+
+    @Test fun testHeaderHasInformationWithoutFocusableBrandOrRepeatedAppNames() {
+        assertNull(find("nav:home"))
+        assertNotNull(find("nav:inputs"))
+        assertFalse(find("header:weather")!!.isFocusable)
+        val clock = find("header:time")!!
+        val date = find("header:date")!!
+        onUi {
+            val a = IntArray(2); val b = IntArray(2)
+            clock.getLocationOnScreen(a); date.getLocationOnScreen(b)
+            assertTrue("Hora e data devem estar lado a lado", b[0] >= a[0] + clock.width)
+            assertTrue(date.width > 0 && date.height > 0)
+        }
+        for (lane in listOf("top", "grid")) {
+            val card = find(lane + ":" + fixture) as? ViewGroup ?: continue
+            onUi {
+                fun repeatedLabel(view: View): Boolean {
+                    if (view is TextView && view.text.toString() == card.contentDescription.toString()) return true
+                    return view is ViewGroup && (0 until view.childCount).any { repeatedLabel(view.getChildAt(it)) }
+                }
+                assertFalse("O nome continua aparecendo sob o cartão", repeatedLabel(card))
+            }
+        }
+    }
+
+    @Test fun testMoveBothLanesCanBeCancelledAndSavedAcrossRecreation() {
+        seedOrderCatalog()
+        val prefs = instrumentation.targetContext.getSharedPreferences("launcher", 0)
+        for (lane in listOf("grid", "top")) {
+            val id = samples.first()
+            val original = laneOrder(lane)
+            onUi { find(lane + ":" + id)!!.performLongClick() }
+            click("app:right")
+            await { laneOrder(lane).indexOf(id) == 1 }
+            key(KeyEvent.KEYCODE_DPAD_RIGHT)
+            assertEquals(2, laneOrder(lane).indexOf(id))
+            key(KeyEvent.KEYCODE_BACK)
+            assertEquals(original, laneOrder(lane))
+            assertFalse(prefs.contains("order." + lane))
+            onUi { find(lane + ":" + id)!!.performLongClick() }
+            click("app:right")
+            key(KeyEvent.KEYCODE_DPAD_CENTER)
+            val saved = laneOrder(lane)
+            assertEquals(saved, AppOrdering.decode(prefs.getString("order." + lane, null)))
+            assertNull(find("launcher-panel"))
+            scenario.recreate()
+            scenario.onActivity { screen = it }
+            await { find("grid:" + fixture) != null }
+            seedOrderCatalog()
+            await { laneOrder(lane) == saved }
+        }
+    }
+
+    @Test fun testVideoInputsPanelDoesNotShowKeyboardOrMouseInventory() {
+        key(KeyEvent.KEYCODE_MENU)
+        click("action:inputs")
+        await { find("inputs:native") != null }
+        assertNull(find("devices:bluetooth"))
+        val text = onUi {
+            val labels = ArrayList<String>()
+            fun visit(view: View) {
+                if (view is TextView) labels.add(view.text.toString())
+                if (view is ViewGroup) for (i in 0 until view.childCount) visit(view.getChildAt(i))
+            }
+            visit(find("launcher-panel")!!)
+            labels.joinToString(" ").lowercase()
+        }
+        assertFalse(text.contains("entradas detectadas") || text.contains("sim-mouse") || text.contains("sim-qb"))
+        key(KeyEvent.KEYCODE_BACK)
+        await { find("action:inputs")?.hasFocus() == true }
     }
 
     @Test fun testPanelContainsRemoteFocusAndRestoresHomeFocus() {
@@ -172,5 +266,11 @@ class LauncherNavigationTest {
         capture("action-center.png")
         click("action:customize")
         capture("customization.png")
+        key(KeyEvent.KEYCODE_BACK)
+        click("action:inputs")
+        capture("inputs.png")
+        key(KeyEvent.KEYCODE_MENU)
+        onUi { find("grid:" + fixture)!!.performLongClick() }
+        capture("app-options.png")
     }
 }
