@@ -10,3 +10,4 @@ local.properties
 *.keystore
 signing-private/
 dist/
+app/src/androidTest/assets/previous-release.apk

@@ -10,6 +10,9 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.TextView
+import android.widget.ProgressBar
+import android.content.res.ColorStateList
 
 internal data class PanelAction(val key: String, val title: String, val detail: String,
     val icon: TvIcon.Kind, val selected: Boolean = false, val run: () -> Unit)
@@ -86,9 +89,22 @@ internal class LauncherPanel(private val ui: TvStyle, title: String, subtitle: S
         })
     }
 
-    fun paragraph(text: String) {
-        content.addView(ui.text(text,13f,ui.muted).apply { setLineSpacing(ui.dp(4).toFloat(),1f) },
+    fun paragraph(text: String): TextView {
+        val label = ui.text(text,13f,ui.muted).apply { setLineSpacing(ui.dp(4).toFloat(),1f) }
+        content.addView(label,
             LinearLayout.LayoutParams(-1,-2).apply { bottomMargin = ui.dp(16) })
+        return label
+    }
+
+    fun progress(): ProgressBar {
+        val bar = ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            progressTintList = ColorStateList.valueOf(ui.accent)
+            indeterminateTintList = ColorStateList.valueOf(ui.accent)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        content.addView(bar, LinearLayout.LayoutParams(-1, ui.dp(6)).apply { bottomMargin = ui.dp(18) })
+        return bar
     }
 
     fun grid(items: List<PanelAction>) {

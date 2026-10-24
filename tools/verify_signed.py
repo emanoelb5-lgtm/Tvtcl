@@ -15,6 +15,7 @@ expected = (root / "signing/certificate.sha256").read_text().strip().lower()
 # Intentionally pinned: changing only a metadata file cannot silently rotate the key.
 PINNED_CERTIFICATE = "21e8b079624ca39fcb84817f2a711c46e474d2ccdb65f6e629e26fe153fdb688"
 assert expected == PINNED_CERTIFICATE == manifest["certificate_sha256"], "Certificado permanente alterado"
+assert f'const val CERTIFICATE = "{expected}"' in (root / "app/src/main/java/com/b5solucoes/tcllight/UpdateRelease.kt").read_text(), "O atualizador perdeu a assinatura fixa"
 assert all(manifest[k] == v for k, v in version.items()), "Versão não corresponde ao fonte"
 assert re.fullmatch(r"[0-9a-f]{40}", manifest["source_commit"]), "Commit de origem inválido"
 subprocess.run(["git", "cat-file", "-e", manifest["source_commit"] + "^{commit}"], check=True)
@@ -34,3 +35,10 @@ for name, code in [("TCL-Light-" + version["version_name"] + ".apk", version["ve
     assert f"versionName='{version['version_name']}'" in badging.splitlines()[0], "Nome de versão incorreto"
     assert "application-debuggable" not in badging, "APK de teste não pode ser publicado"
     print(f"Verified {name}: code={code}; certificate={expected}")
+name = "TCL-Light-" + version["version_name"] + ".apk"
+feed = json.loads((stage / "TCL-Light-atualizacao.json").read_text())
+assert feed == {"schema": 1, "package": version["package"], "version_name": version["version_name"],
+    "version_code": version["version_code"], "min_sdk": 23,
+    "apk_url": "https://github.com/emanoelb5-lgtm/Tvtcl/releases/download/v" + version["version_name"] + "/" + name,
+    "size_bytes": (stage / name).stat().st_size, "sha256": manifest["files"][name],
+    "certificate_sha256": expected}, "Metadados da atualização não correspondem ao APK verificado"

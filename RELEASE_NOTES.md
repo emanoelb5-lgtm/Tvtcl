@@ -1,14 +1,12 @@
-# TCL Light 0.7.0
+# TCL Light 0.8.0
 
-- Nova assinatura permanente, com certificado público e verificação que bloqueia uma assinatura diferente.
-- Cartões sem o nome repetido abaixo do ícone.
-- Segure OK para reorganizar em Mais utilizados e Seus aplicativos. Setas movem, OK salva e Voltar cancela.
-- Ordem manual salva por área, com opção de restaurar a organização automática.
-- Faixa superior reorganizada com clima de Garrafão do Norte, hora, data, rede, entradas e Central.
-- Entradas de vídeo consultadas pela API da TV, respeitando fontes ocultadas e sem exibir teclados/mouses.
-- Atalhos para a TV nativa e para o seletor nativo de fontes.
-- Testes de navegação e teste real de atualização sobre a instalação existente em Android TV 720p.
+- Atualização interna em Central → Atualizar TCL Light: verificar, baixar do GitHub e confirmar a instalação na própria TV.
+- Verificação do pacote, versão, tamanho, integridade e assinatura permanente antes da instalação.
+- Progresso de download, cancelamento e nova tentativa sem bloquear o controle remoto.
+- Google Play Store visível na grade e com atalho na Central quando instalada e habilitada.
+- Barra superior fixa, com cartões recortados dentro da área de rolagem, sem sobrepor clima, hora ou controles.
+- Preservação da organização e dos ajustes ao atualizar sobre a 0.7.0.
 
-**Migração única:** desinstale a beta antiga antes de instalar a 0.7.0. A chave mudou nesta versão e as preferências da beta antiga serão apagadas. Depois, mantenha as próximas versões assinadas com o certificado permanente para atualizar diretamente por cima da 0.7.0.
+**Instale sobre a 0.7.0, sem desinstalar.** O certificado permanente é o mesmo. A 0.8.0 é a primeira versão com atualizador interno; nas próximas versões, use a Central para baixar e instalar. Na primeira instalação por esse caminho, o Android pode pedir que você permita instalações pelo TCL Light.
 
-Mantenha o launcher original da TV instalado. O comportamento das entradas e a escolha de Home dependem das opções expostas pelo firmware.
+O aplicativo não altera o estado do launcher original da TV. A integração do botão Home que você já configurou é preservada pelo pacote e componente existentes.

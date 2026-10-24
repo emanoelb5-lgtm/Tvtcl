@@ -12,8 +12,8 @@ android {
         minSdk = 23
         targetSdk = 28
         // CI builds an internal higher-code APK only to verify an actual in-place update.
-        versionCode = providers.gradleProperty("verificationVersionCode").orNull?.toInt() ?: 7
-        versionName = "0.7.0"
+        versionCode = providers.gradleProperty("verificationVersionCode").orNull?.toInt() ?: 8
+        versionName = "0.8.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -29,6 +29,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+    buildFeatures { buildConfig = true }
     lint {
         // Direct APK distribution for legacy TV firmware, not a Google Play submission.
         // Keep this policy finding visible; all other release errors remain fatal.
