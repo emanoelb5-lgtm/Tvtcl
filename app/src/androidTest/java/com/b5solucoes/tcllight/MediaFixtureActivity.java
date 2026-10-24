@@ -30,7 +30,7 @@ public class MediaFixtureActivity extends Activity {
         ContentValues channel=new ContentValues();
         channel.put("input_id",getPackageName()+"/.CatalogInput");channel.put("type","TYPE_OTHER");
         channel.put("service_type","SERVICE_TYPE_AUDIO_VIDEO");channel.put("display_number","105");
-        channel.put("display_name","Canal multimídia de teste");channel.put("browsable",1);channel.put("searchable",1);
+        channel.put("display_name","Canal multimídia de teste");channel.put("searchable",1);
         testChannel=getContentResolver().insert(TvContract.Channels.CONTENT_URI,channel);
         long channelId=Long.parseLong(testChannel.getLastPathSegment());
         for(int i=0;i<2;i++) {

@@ -157,6 +157,15 @@ class MediaIntegrationTest {
             await { reader.watch().items.any { it.entry.title=="Documentário compartilhado de teste" && it.entry.packageName==fixture } }
             val watch=reader.watch().items.first { it.entry.packageName==fixture }
             assertEquals(50,watch.percent)
+            var channelId=-1L
+            context.contentResolver.query(android.media.tv.TvContract.Channels.CONTENT_URI,arrayOf("_id","display_name"),null,null,null)?.use { cursor->
+                while(cursor.moveToNext()) if(cursor.getString(1)=="Canal multimídia de teste") channelId=cursor.getLong(0)
+            }
+            assertTrue(channelId>=0)
+            // Only the user/system may enable a tuner channel. Seed that one fixture flag as root in
+            // the disposable userdebug emulator; all production queries below still use the app UID.
+            val setup=shell("su 0 content update --uri content://android.media.tv/channel/$channelId --bind browsable:i:1")
+            assertTrue("O emulador não habilitou o canal de teste: $setup",setup.contains("Updated 1"))
             val guide=reader.guide()
             val channel=guide.channels.firstOrNull { it.name=="Canal multimídia de teste" }
             assertNotNull("A consulta nativa não encontrou o canal compartilhado: ${guide.message}",channel)
