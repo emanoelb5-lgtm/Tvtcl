@@ -407,6 +407,92 @@ class LauncherNavigationTest {
         }
     }
 
+    private fun nativeNode(predicate: (android.view.accessibility.AccessibilityNodeInfo)->Boolean): android.view.accessibility.AccessibilityNodeInfo? {
+        fun search(node: android.view.accessibility.AccessibilityNodeInfo?): android.view.accessibility.AccessibilityNodeInfo? {
+            if(node == null) return null
+            if(predicate(node)) return node
+            for(i in 0 until node.childCount) search(node.getChild(i))?.let { return it }
+            return null
+        }
+        return search(instrumentation.uiAutomation.rootInActiveWindow)
+    }
+    private fun enterNativeText(text: String,button: String) {
+        await { nativeNode { it.className?.toString()=="android.widget.EditText" } != null }
+        val input=nativeNode { it.className?.toString()=="android.widget.EditText" }!!
+        assertTrue(input.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SET_TEXT,Bundle().apply {
+            putCharSequence(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,text)
+        }))
+        await { nativeNode { it.text?.toString()?.equals(button,true)==true && it.isClickable } != null }
+        assertTrue(nativeNode { it.text?.toString()?.equals(button,true)==true && it.isClickable }!!.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
+        instrumentation.waitForIdleSync()
+    }
+
+    @Test fun testMultimediaListCanBeCreatedReorderedRemovedAndRestoredAfterRecreation() {
+        click("media-home:list");click("media-list:add")
+        enterNativeText("Documentário da Amazônia","Salvar")
+        val prefs=instrumentation.targetContext.getSharedPreferences("launcher",0)
+        await { MediaLibrary.decode(prefs.getString(MediaLibrary.PREF,null)).size==1 }
+        val first=MediaLibrary.decode(prefs.getString(MediaLibrary.PREF,null)).single()
+        click("media-list:"+first.id)
+        click("media-entry:rename");enterNativeText("Amazônia","Confirmar")
+        key(KeyEvent.KEYCODE_BACK)
+        val second=MediaEntry(title="Série da semana",kind="series")
+        onUi { prefs.edit().putString(MediaLibrary.PREF,MediaLibrary.encode(MediaLibrary.decode(prefs.getString(MediaLibrary.PREF,null))+second)).commit() }
+        key(KeyEvent.KEYCODE_MENU)
+        click("media-home:list");click("media-list:"+first.id);click("media-entry:right")
+        assertEquals(second.id,MediaLibrary.decode(prefs.getString(MediaLibrary.PREF,null)).first().id)
+        scenario.recreate();scenario.onActivity { screen=it }
+        await { find("media-home:list") != null }
+        click("media-home:list");click("media-list:"+first.id);click("media-entry:remove")
+        assertEquals(listOf(second),MediaLibrary.decode(prefs.getString(MediaLibrary.PREF,null)))
+    }
+
+    @Test fun testStreamingSearchDeliversTheQueryToAnExternalApp() {
+        click("media-home:search");click("media-search:query")
+        enterNativeText("Amazônia","Confirmar")
+        click("media-search:app:"+fixture)
+        await { nativeNode { it.text?.toString()=="Busca: Amazônia" && it.packageName?.toString()==fixture } != null }
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand("input keyevent 4")).use { it.readBytes() }
+        await { onUi { screen.hasWindowFocus() } }
+    }
+
+    @Test fun testGuideFallbackAndOptionalPlaybackRemainUsableWithoutSpecialAccess() {
+        click("media-home:guide")
+        await { find("media-guide:native") != null && find("media-guide:manual") != null }
+        click("media-guide:manual")
+        await { find("media-reminders:manual") != null }
+        key(KeyEvent.KEYCODE_BACK);key(KeyEvent.KEYCODE_BACK)
+        click("media:now")
+        assertNotNull(find("media-now:access"));assertNull(find("media-now:toggle"))
+        assertFalse(instrumentation.targetContext.getSharedPreferences("launcher",0).getBoolean("media.playback",false))
+        key(KeyEvent.KEYCODE_BACK)
+        await { find("media:now")?.hasFocus()==true }
+    }
+
+    @Test fun testMultimediaHomeCanBeDisabledWithoutBreakingRemoteNavigation() {
+        key(KeyEvent.KEYCODE_MENU);click("action:media");click("media:settings")
+        click("media-settings:media.home")
+        assertNull(find("media-home:search"))
+        key(KeyEvent.KEYCODE_MENU)
+        onUi { find("top:"+fixture)!!.requestFocus() }
+        key(KeyEvent.KEYCODE_DPAD_DOWN)
+        await { find("grid:"+fixture)?.hasFocus()==true }
+        key(KeyEvent.KEYCODE_DPAD_UP)
+        await { find("top:"+fixture)?.hasFocus()==true }
+    }
+
+    @Test fun testReminderDetailsCanOpenFromHomeAndBeCancelledByRemote() {
+        val reminder=MediaReminders.add(instrumentation.targetContext,MediaEntry(title="Jornal da noite"),System.currentTimeMillis()+3600000L)
+        try {
+            key(KeyEvent.KEYCODE_MENU);click("action:media");click("media:reminders")
+            click("media-reminder:"+reminder.id)
+            assertNotNull(find("media-reminder:open"))
+            click("media-reminder:remove")
+            assertFalse(MediaReminders.read(instrumentation.targetContext).any { it.id==reminder.id })
+            assertNull(find("media-reminder:"+reminder.id))
+        } finally { MediaReminders.remove(instrumentation.targetContext,reminder.id) }
+    }
+
     @Test fun testZCaptureNativeTvScreens() {
         val folder = File(instrumentation.targetContext.getExternalFilesDir(null),"qa").apply { mkdirs() }
         fun capture(name: String) {
@@ -423,6 +509,14 @@ class LauncherNavigationTest {
         click("action:wifi");capture("network.png");key(KeyEvent.KEYCODE_BACK)
         click("action:shortcuts");capture("shortcuts.png");key(KeyEvent.KEYCODE_BACK)
         click("action:backup");capture("backup.png");key(KeyEvent.KEYCODE_BACK)
+        click("action:media");capture("media-hub.png")
+        click("media:list");capture("media-list.png");key(KeyEvent.KEYCODE_BACK)
+        click("media:search");capture("media-search.png");key(KeyEvent.KEYCODE_BACK)
+        click("media:guide");capture("media-guide.png");key(KeyEvent.KEYCODE_BACK)
+        click("media:watch");capture("media-watch.png");key(KeyEvent.KEYCODE_BACK)
+        click("media:reminders");capture("media-reminders.png");key(KeyEvent.KEYCODE_BACK)
+        click("media:now");capture("media-now.png");key(KeyEvent.KEYCODE_BACK)
+        key(KeyEvent.KEYCODE_BACK)
         click("action:update")
         capture("updates.png")
         key(KeyEvent.KEYCODE_BACK)

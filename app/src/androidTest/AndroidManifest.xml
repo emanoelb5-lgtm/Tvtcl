@@ -1,6 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
+        <activity android:name="com.b5solucoes.tcllight.MediaFixtureActivity" android:label="Busca e mídia de teste"
+            android:exported="true" android:screenOrientation="landscape">
+            <intent-filter>
+                <action android:name="android.intent.action.SEARCH" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
         <activity android:name="com.b5solucoes.tcllight.FixtureActivity"
             android:label="Arquivos de teste" android:exported="true"
             android:screenOrientation="landscape">

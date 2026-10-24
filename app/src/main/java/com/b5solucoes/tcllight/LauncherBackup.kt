@@ -10,7 +10,8 @@ internal data class BackupData(val values: Map<String, Any>) {
     val summary: String get() {
         val hidden = (values["hidden_apps"] as? Set<*>)?.size ?: 0
         val shortcuts = HomeShortcuts.decode(values[HomeShortcuts.PREF] as? String).size
-        return "Organização dos aplicativos, $hidden ocultos, $shortcuts atalhos e ajustes de aparência."
+        val media=MediaLibrary.decode(values[MediaLibrary.PREF] as? String).size
+        return "Organização dos aplicativos, $hidden ocultos, $shortcuts atalhos, $media itens na Minha lista e ajustes de aparência."
     }
 }
 
@@ -25,11 +26,12 @@ internal object LauncherBackup {
     private val defaults = mapOf("wallpaper_mode" to -1, "wallpaper_dim" to 50, "icon_scale" to 1,
         "top_count" to 7, "safe_horizontal" to 42, "safe_vertical" to 8, "text_scale" to 100)
     private val sets = setOf("hidden_apps", "pinned_apps")
+    private val mediaFlags=setOf("media.home","media.continue","media.list")
     private val orders = setOf("order.top", "order.grid")
     private val packagePattern = Regex("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+")
     private fun validPackage(value: String) = value.length <= 255 && value.matches(packagePattern)
     private fun owned(key: String) = key in ints || key in sets || key in orders || key == "eco_mode" ||
-        key == HomeShortcuts.PREF || key.startsWith("usage.count.") || key.startsWith("usage.time.")
+        key == HomeShortcuts.PREF || key == MediaLibrary.PREF || key == "media.services" || key in mediaFlags || key.startsWith("usage.count.") || key.startsWith("usage.time.")
 
     fun export(prefs: SharedPreferences, lowMemory: Boolean): ByteArray {
         val values = JSONObject()
@@ -38,6 +40,9 @@ internal object LauncherBackup {
         sets.forEach { key -> values.put(key, JSONArray(prefs.getStringSet(key, emptySet())!!.sorted())) }
         orders.forEach { key -> values.put(key, JSONArray(AppOrdering.decode(prefs.getString(key, null)))) }
         values.put(HomeShortcuts.PREF, JSONArray(HomeShortcuts.encode(HomeShortcuts.decode(prefs.getString(HomeShortcuts.PREF, null)))))
+        values.put(MediaLibrary.PREF,JSONArray(MediaLibrary.encode(MediaLibrary.decode(prefs.getString(MediaLibrary.PREF,null)))))
+        mediaFlags.forEach { key->values.put(key,prefs.getBoolean(key,true)) }
+        if(prefs.contains("media.services")) values.put("media.services",JSONArray(prefs.getStringSet("media.services",emptySet())!!.sorted()))
         prefs.all.filterKeys { it.startsWith("usage.count.") }.entries.take(500).forEach { (key, value) ->
             if (value is Int && validPackage(key.removePrefix("usage.count."))) values.put(key, value.coerceAtLeast(0))
         }
@@ -69,7 +74,7 @@ internal object LauncherBackup {
         val root = JSONObject(bytes.toString(Charsets.UTF_8))
         require(root.getString("format") == "tcl-light-settings" && root.get("schema") == 1 && root.getString("package") == UpdatePolicy.PACKAGE)
         val source = root.getJSONObject("preferences")
-        require(source.length() <= 1030)
+        require(source.length() <= 1040)
         val result = LinkedHashMap<String,Any>()
         val keys = source.keys()
         while (keys.hasNext()) {
@@ -77,16 +82,17 @@ internal object LauncherBackup {
             require(owned(key))
             when {
                 key in ints -> { require(value is Int && value in ints.getValue(key)); result[key] = value }
-                key == "eco_mode" -> { require(value is Boolean); result[key] = value }
-                key in sets || key in orders -> {
+                key == "eco_mode" || key in mediaFlags -> { require(value is Boolean); result[key] = value }
+                key in sets || key in orders || key == "media.services" -> {
                     require(value is JSONArray && value.length() <= 500)
                     val ids = (0 until value.length()).map { index ->
                         val item = value.get(index); require(item is String && validPackage(item)); item
                     }
                     require(ids.distinct().size == ids.size)
-                    result[key] = if (key in sets) ids.toSet() else AppOrdering.encode(ids)
+                    result[key] = if (key in sets || key == "media.services") ids.toSet() else AppOrdering.encode(ids)
                 }
                 key == HomeShortcuts.PREF -> { require(value is JSONArray); result[key] = HomeShortcuts.encode(HomeShortcuts.parse(value)) }
+                key == MediaLibrary.PREF -> { require(value is JSONArray);result[key]=MediaLibrary.encode(MediaLibrary.parse(value)) }
                 key.startsWith("usage.count.") -> { require(validPackage(key.removePrefix("usage.count.")) && value is Int && value >= 0); result[key] = value }
                 else -> { require(validPackage(key.removePrefix("usage.time.")) && (value is Long || value is Int) && (value as Number).toLong() >= 0); result[key] = (value as Number).toLong() }
             }
@@ -107,6 +113,7 @@ internal object LauncherBackup {
         }
         // A backup never resumes an untested video input on another TV.
         edit.remove("tv_background_input")
+        edit.remove("media.playback")
         if (!edit.commit()) throw java.io.IOException("Não foi possível restaurar as preferências")
     }
 }
