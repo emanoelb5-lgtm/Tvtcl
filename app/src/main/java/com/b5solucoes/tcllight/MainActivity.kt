@@ -49,6 +49,10 @@ class MainActivity : Activity() {
     private fun economy() = prefs.getBoolean("eco_mode", lowMemory)
     private val ui by lazy { TvStyle(this, ::economy, { prefs.getInt("text_scale",100) / 100f }, { safeHorizontal() to safeVertical() }, { prefs.getInt(LauncherPalettes.PREF,0) }) }
     private val artwork by lazy { AppArtwork(applicationContext) }
+    private val catalogCache by lazy { AppCatalogCache(applicationContext) }
+    private var catalogWarmAttempted=false
+    private var scannedSnapshot:List<CachedTvApp> = emptyList()
+    private var appliedCatalogSignature=""
     private val scanner = Executors.newSingleThreadExecutor { r -> Thread({ android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND); r.run() },"tv-app-catalog") }
     private lateinit var frame: FrameLayout
     private lateinit var homeLayer: LinearLayout
@@ -209,12 +213,13 @@ class MainActivity : Activity() {
         refreshStatus()
         wallpapers?.onForeground()
         registerStatusListeners()
+        // App rows must not wait behind firmware input-provider calls.
+        if(appsDirty) refresh()
         tvSources.start()
         refreshInputs()
         weather.start()
         updates.observe(updateObserver)
         handler.postDelayed(automaticUpdates,5000L)
-        if(appsDirty) refresh()
         if(usageDirty) { usageDirty = false; renderApps() }
         requestArtworkUpdate()
         refreshBackgroundTv()
@@ -261,10 +266,13 @@ class MainActivity : Activity() {
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if(level >= TRIM_MEMORY_RUNNING_LOW) artwork.trim()
-        if(level >= TRIM_MEMORY_RUNNING_LOW) mediaHub?.trim()
-        if(level >= TRIM_MEMORY_RUNNING_LOW && backgroundTv?.state == BackgroundTvState.PLAYING)
-            backgroundTv?.fail("A TV ao fundo foi encerrada para liberar memória.")
+        // UI_HIDDEN (20) is a visibility event, not a low-memory event. Do not erase warm caches on every Home return.
+        val pressure=level==TRIM_MEMORY_RUNNING_LOW || level==TRIM_MEMORY_RUNNING_CRITICAL || level>=TRIM_MEMORY_BACKGROUND
+        if(pressure) {
+            val severe=level==TRIM_MEMORY_RUNNING_CRITICAL || level>=TRIM_MEMORY_MODERATE
+            artwork.trim(severe);mediaHub?.trim(severe)
+            if(backgroundTv?.state==BackgroundTvState.PLAYING) backgroundTv?.fail("A TV ao fundo foi encerrada para liberar memória.")
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -604,6 +612,8 @@ class MainActivity : Activity() {
         // Grid cards still have a row parent after that whole row is removed.
         // Release those bindings as well, especially while a user rearranges apps.
         artworkBindings.removeAll { it.card.rootView !== frame.rootView }
+        val nearby=ArrayList<ArtworkBinding>()
+        val position=IntArray(2)
         for(binding in artworkBindings) {
             binding.visible = binding.image.isShown && binding.image.getGlobalVisibleRect(visibleRect)
             if(!binding.visible) {
@@ -611,6 +621,11 @@ class MainActivity : Activity() {
                     binding.image.setImageDrawable(null)
                     binding.placeholder.visibility = View.VISIBLE
                     binding.hasImage = false
+                }
+                if(binding.card.isShown) {
+                    binding.card.getLocationOnScreen(position)
+                    if(position[0]+binding.card.width>=-binding.card.width && position[0]<=resources.displayMetrics.widthPixels+binding.card.width &&
+                        position[1]+binding.card.height>=0 && position[1]<=resources.displayMetrics.heightPixels+binding.card.height) nearby.add(binding)
                 }
             } else if(!binding.loading && !binding.hasImage) {
                 binding.loading = true
@@ -627,6 +642,7 @@ class MainActivity : Activity() {
                 }
             }
         }
+        nearby.distinctBy { it.component }.take(4).forEach { artwork.load(it.component,false) {} }
     }
 
     private fun wireNavigation(columns: Int) {
@@ -673,17 +689,33 @@ class MainActivity : Activity() {
         if(scanning) { scanAgain = true; return }
         scanning = true; appsDirty = false
         scanner.execute {
+            if(!catalogWarmAttempted) {
+                catalogWarmAttempted=true
+                val saved=catalogCache.read()
+                saved.forEach { artwork.register(it.component,it.revision) }
+                if(saved.isNotEmpty()) handler.post {
+                    if(!isDestroyed && !isFinishing && mediaApps.isEmpty()) {
+                        appliedCatalogSignature=saved.toString()
+                        mediaApps=saved.map { TvApp(it.name,it.component.packageName,it.component) };renderApps()
+                    }
+                }
+            }
             val installed = try { detectInstalledApps() } catch(_: Exception) { null }
+            val snapshot=scannedSnapshot
             handler.post {
                 scanning = false
                 if(isDestroyed || isFinishing) return@post
-                if(installed != null) { mediaApps = installed; renderApps() }
+                if(installed != null) {
+                    if(appliedCatalogSignature!=snapshot.toString()) { appliedCatalogSignature=snapshot.toString();catalogRevision++ }
+                    mediaApps = installed; renderApps()
+                }
                 else {
                     appsDirty = true
                     Toast.makeText(this,"Não foi possível atualizar os aplicativos.",Toast.LENGTH_SHORT).show()
                 }
                 if(scanAgain) { scanAgain = false; refresh() }
             }
+            if(installed!=null) catalogCache.write(snapshot)
         }
     }
 
@@ -1436,6 +1468,7 @@ class MainActivity : Activity() {
     private fun detectInstalledApps(): List<TvApp> {
         val manager = packageManager
         val found = LinkedHashMap<String, TvApp>()
+        val activityInfos=HashMap<String,android.content.pm.ActivityInfo>()
         for (cat in listOf(Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER)) {
             val request = Intent(Intent.ACTION_MAIN).addCategory(cat)
             @Suppress("DEPRECATION")
@@ -1446,10 +1479,8 @@ class MainActivity : Activity() {
                 if (pkg == packageName || found.containsKey(pkg)) continue
                 val name = try { entry.loadLabel(manager).toString() }
                     catch (_: Exception) { pkg }
-                val info = try {
-                    @Suppress("DEPRECATION")
-                    manager.getApplicationInfo(pkg, 0)
-                } catch (_: Exception) { continue }
+                val info=activity.applicationInfo ?: continue
+                if(!activity.enabled || !activity.exported || !info.enabled) continue
                 val isSystemApp = (info.flags and ApplicationInfo.FLAG_SYSTEM != 0) ||
                     (info.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP != 0)
                 // Mesmo um app de sistema só aparece se for um streaming/mídia conhecido.
@@ -1458,6 +1489,7 @@ class MainActivity : Activity() {
                 // Home/Configurações mantidos só na central superior.
                 if (isInternalLauncherOrSettings(pkg, name)) continue
                 found[pkg] = TvApp(name, pkg, ComponentName(pkg, activity.name))
+                activityInfos[pkg]=activity
             }
         }
         // Some TV firmware omits the store from the generic launcher query.
@@ -1472,7 +1504,18 @@ class MainActivity : Activity() {
             }
         }
         val comparator = Collator.getInstance(locale)
-        return found.values.sortedWith(Comparator { a, b -> comparator.compare(a.name, b.name) })
+        val sorted=found.values.sortedWith(Comparator { a,b->comparator.compare(a.name,b.name) })
+        scannedSnapshot=sorted.map { app ->
+            val revision=try {
+                @Suppress("DEPRECATION")
+                val info=manager.getPackageInfo(app.packageName,0)
+                "${info.lastUpdateTime}:${if(Build.VERSION.SDK_INT>=28) info.longVersionCode else info.versionCode.toLong()}"
+            } catch(_:Exception) { "${System.currentTimeMillis()}" }
+            val info=activityInfos[app.packageName]
+            artwork.register(app.component,revision,info)
+            CachedTvApp(app.name,app.component,revision)
+        }
+        return sorted
     }
 
     private fun isVisibleSystemApp(pkg: String, name: String, category: Int): Boolean =

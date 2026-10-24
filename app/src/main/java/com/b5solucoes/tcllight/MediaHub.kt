@@ -44,8 +44,9 @@ internal class MediaHub(private val activity: Activity, private val ui: TvStyle,
     private val handler=Handler(Looper.getMainLooper())
     private val worker=Executors.newSingleThreadExecutor { r->Thread(r,"tv-media-catalog") }
     private val catalog=TvMediaCatalog(activity.applicationContext)
-    private val art=MediaArt(activity.applicationContext,handler)
-    private val panelArt=MediaArt(activity.applicationContext,handler)
+    private val artwork=MediaArtwork(activity.applicationContext,handler)
+    private val art=MediaArt(activity.applicationContext,handler,artwork)
+    private val panelArt=MediaArt(activity.applicationContext,handler,artwork)
     private val online=StreamingSearch()
     private var searchResult:CatalogResult?=null
     private var searchLoading=false
@@ -115,8 +116,8 @@ internal class MediaHub(private val activity: Activity, private val ui: TvStyle,
         if(registered) runCatching { activity.contentResolver.unregisterContentObserver(observer) }
         registered=false;playback.stop();art.stop();online.cancel();searchLoading=false;panelArt.stop()
     }
-    fun close() { closed=true;stop();prefs.unregisterOnSharedPreferenceChangeListener(prefListener);handler.removeCallbacksAndMessages(null);worker.shutdownNow();art.close();panelArt.close();online.close() }
-    fun trim() { art.trim();panelArt.trim() }
+    fun close() { closed=true;stop();prefs.unregisterOnSharedPreferenceChangeListener(prefListener);handler.removeCallbacksAndMessages(null);worker.shutdownNow();art.close();panelArt.close();artwork.close();online.close() }
+    fun trim(severe: Boolean=true) { artwork.trim(severe);art.trim(severe);panelArt.trim(severe) }
     fun refreshVisible() { art.refreshVisible();panelArt.refreshVisible() }
     fun appsChanged() { if(isOpen() && screen == "search") renderSearchResults() }
     fun panelClosed() { online.cancel();searchLoading=false;searchWorkspace=null;handler.removeCallbacks(searchTyped);panelArt.stop();panelArt.clearBindings() }
@@ -210,6 +211,7 @@ internal class MediaHub(private val activity: Activity, private val ui: TvStyle,
                 card.setOnLongClickListener { card.requestFocus();showEntry(entry);true }
                 row.addView(card,LinearLayout.LayoutParams(ui.dp(180),-2).apply { rightMargin=ui.dp(10) });views.add(card)
             }
+            scroll.setOnScrollChangeListener { _,_,_,_,_->art.refreshVisible() }
             scroll.addView(row);area.addView(scroll);homeRows.add(views)
         }
         if(prefs.getBoolean("media.continue",true)) cards("Continuar assistindo",shown.map { it.entry },
