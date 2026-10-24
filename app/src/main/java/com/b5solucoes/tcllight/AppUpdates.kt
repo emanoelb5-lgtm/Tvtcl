@@ -109,6 +109,15 @@ internal class AppUpdates internal constructor(context: Context,
         main.post { state = next; observers.toList().forEach { it(next) } }
     }
 
+    /** Publish an actionable state only after this operation and its cleanup have left the worker. */
+    private fun complete(next: UpdateState, after: () -> Unit = {}) {
+        try {
+            executor.execute {
+                main.post { busy.set(false);state=next;observers.toList().forEach { it(next) };after() }
+            }
+        } catch(_:java.util.concurrent.RejectedExecutionException) { busy.set(false) }
+    }
+
     fun check() {
         if (!busy.compareAndSet(false, true)) return
         cancelled.set(false)
@@ -124,21 +133,20 @@ internal class AppUpdates internal constructor(context: Context,
                 val installed = identity()
                 if (release.versionCode <= installed.versionCode) {
                     apk.delete()
-                    publish(UpdateState(UpdatePhase.CURRENT, message = "Você já está na versão mais recente."))
+                    complete(UpdateState(UpdatePhase.CURRENT, message = "Você já está na versão mais recente."))
                 } else if (release.minSdk > Build.VERSION.SDK_INT) {
                     throw UpdateFailure("Esta atualização exige uma versão mais recente do Android.")
                 } else {
                     if (apk.isFile) {
                         try {
                             UpdateApkVerifier.verify(app.packageManager, apk, release, installed)
-                            publish(UpdateState(UpdatePhase.READY, release, 100, "A atualização está pronta para instalar."))
+                            complete(UpdateState(UpdatePhase.READY, release, 100, "A atualização está pronta para instalar."))
                             return@execute
                         } catch (_: Exception) { apk.delete() }
                     }
-                    publish(UpdateState(UpdatePhase.AVAILABLE, release, message = "Uma nova versão está disponível."))
+                    complete(UpdateState(UpdatePhase.AVAILABLE, release, message = "Uma nova versão está disponível."))
                 }
             } catch (error: Exception) { failed(error) }
-            finally { busy.set(false) }
         }
     }
 
@@ -180,11 +188,11 @@ internal class AppUpdates internal constructor(context: Context,
                 UpdateApkVerifier.verify(app.packageManager, partial, release, identity())
                 apk.delete()
                 if (!partial.renameTo(apk)) throw UpdateFailure("Não foi possível guardar a atualização. Tente novamente.")
-                publish(UpdateState(UpdatePhase.READY, release, 100, "A atualização está pronta para instalar."))
+                complete(UpdateState(UpdatePhase.READY, release, 100, "A atualização está pronta para instalar."))
             } catch (error: Exception) {
-                if (cancelled.get()) publish(UpdateState(UpdatePhase.AVAILABLE, release, message = "Download cancelado."))
+                if (cancelled.get()) complete(UpdateState(UpdatePhase.AVAILABLE, release, message = "Download cancelado."))
                 else failed(error, release)
-            } finally { partial.delete(); busy.set(false) }
+            } finally { partial.delete() }
         }
     }
 
@@ -201,10 +209,8 @@ internal class AppUpdates internal constructor(context: Context,
         executor.execute {
             try {
                 UpdateApkVerifier.verify(app.packageManager, apk, release, identity())
-                publish(UpdateState(UpdatePhase.READY, release, 100, "Confirme a instalação na próxima tela da TV."))
-                main.post(ready)
+                complete(UpdateState(UpdatePhase.READY, release, 100, "Confirme a instalação na próxima tela da TV."),ready)
             } catch (error: Exception) { apk.delete(); failed(error, release) }
-            finally { busy.set(false) }
         }
     }
 
@@ -214,7 +220,7 @@ internal class AppUpdates internal constructor(context: Context,
     }
 
     private fun failed(error: Exception, release: UpdateRelease? = null) {
-        publish(UpdateState(UpdatePhase.ERROR, release, message = (error as? UpdateFailure)?.message
+        complete(UpdateState(UpdatePhase.ERROR, release, message = (error as? UpdateFailure)?.message
             ?: "Não foi possível concluir a atualização. Verifique a conexão e tente novamente."))
     }
 

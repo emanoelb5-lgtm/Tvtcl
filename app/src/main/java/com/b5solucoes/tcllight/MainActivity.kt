@@ -78,6 +78,7 @@ class MainActivity : Activity() {
     private var importedBackup: BackupData? = null
     private var backupBusy = false
     private var backgroundTv: BackgroundTv? = null
+    private var mediaHub: MediaHub? = null
     private var wallpapers: WallpaperDeck? = null
     private var panel: LauncherPanel? = null
     private var panelBack: (() -> Unit)? = null
@@ -171,12 +172,14 @@ class MainActivity : Activity() {
             View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
             View.SYSTEM_UI_FLAG_LAYOUT_STABLE
         buildInterface()
+        mediaHub?.query=state?.getString("media_query").orEmpty()
         handler.post {
             when (reopenPanel) {
                 "display" -> showDisplaySettings(reopenFocus)
                 "backup" -> showBackup()
             }
             reopenPanel = ""; reopenFocus = ""
+            if(intent?.action == MediaReminders.ACTION_OPEN) intent.getStringExtra("reminder_id")?.let { mediaHub?.showReminder(it) }
         }
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_PACKAGE_ADDED); addAction(Intent.ACTION_PACKAGE_REMOVED)
@@ -203,12 +206,14 @@ class MainActivity : Activity() {
         if(usageDirty) { usageDirty = false; renderApps() }
         requestArtworkUpdate()
         refreshBackgroundTv()
+        mediaHub?.start()
     }
 
     override fun onStop() {
         finishMoving(true)
         foreground = false
         backgroundTv?.stop()
+        mediaHub?.stop()
         handler.removeCallbacks(clockUpdate)
         wallpapers?.onBackground()
         val cm = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -225,6 +230,7 @@ class MainActivity : Activity() {
         outState.putString("feature_panel", reopenPanel)
         outState.putString("feature_focus", reopenFocus)
         outState.putString("backup_message", backupMessage)
+        outState.putString("media_query",mediaHub?.query.orEmpty())
         super.onSaveInstanceState(outState)
     }
 
@@ -236,12 +242,14 @@ class MainActivity : Activity() {
         wallpapers?.close()
         weather.close()
         backgroundTv?.stop()
+        mediaHub?.close()
         super.onDestroy()
     }
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
         if(level >= TRIM_MEMORY_RUNNING_LOW) artwork.trim()
+        if(level >= TRIM_MEMORY_RUNNING_LOW) mediaHub?.trim()
         if(level >= TRIM_MEMORY_RUNNING_LOW && backgroundTv?.state == BackgroundTvState.PLAYING)
             backgroundTv?.fail("A TV ao fundo foi encerrada para liberar memória.")
     }
@@ -251,6 +259,10 @@ class MainActivity : Activity() {
         setIntent(intent)
         finishMoving(true)
         closePanel()
+        if(intent.action == MediaReminders.ACTION_OPEN) {
+            intent.getStringExtra("reminder_id")?.let { mediaHub?.showReminder(it) }
+            return
+        }
         listScroll.smoothScrollTo(0,0)
         firstHomeView().requestFocus()
     }
@@ -297,7 +309,7 @@ class MainActivity : Activity() {
     private fun dp(value: Int) = ui.dp(value)
     private fun safeHorizontal() = prefs.getInt("safe_horizontal",42).coerceIn(24,72)
     private fun safeVertical() = prefs.getInt("safe_vertical",8).coerceIn(0,24)
-    private fun firstHomeView(): View = topViews.firstOrNull() ?: shortcutViews.firstOrNull() ?: gridViews.firstOrNull() ?: centralButton
+    private fun firstHomeView(): View = topViews.firstOrNull() ?: shortcutViews.firstOrNull() ?: gridViews.firstOrNull() ?: mediaHub?.homeRows?.firstOrNull()?.firstOrNull() ?: centralButton
     private fun lp(w: Int,h: Int,l: Int=0,t: Int=0,r: Int=0,b: Int=0) =
         LinearLayout.LayoutParams(w,h).apply { setMargins(dp(l),dp(t),dp(r),dp(b)) }
 
@@ -362,7 +374,7 @@ class MainActivity : Activity() {
             setPadding(dp(safeHorizontal()),dp(6),dp(safeHorizontal()),dp(14))
         }
         listScroll.addView(column)
-        listScroll.viewTreeObserver.addOnScrollChangedListener { requestArtworkUpdate() }
+        listScroll.viewTreeObserver.addOnScrollChangedListener { requestArtworkUpdate();mediaHub?.refreshVisible() }
         val sceneSpace = ((resources.configuration.screenHeightDp-480)*.25f).toInt().coerceIn(12,60)
         column.addView(View(this),lp(-1,dp(sceneSpace)))
         shortcutArea = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -389,6 +401,8 @@ class MainActivity : Activity() {
         }
         favoriteStrip.addView(favorites)
         column.addView(favoriteStrip,lp(-1,-2,0,0,0,16))
+        val mediaArea=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;clipChildren=false;clipToPadding=false }
+        column.addView(mediaArea,lp(-1,-2,0,0,0,16))
         val appHeader = section("Seus aplicativos","")
         appCount = (appHeader as LinearLayout).getChildAt(1) as TextView
         column.addView(appHeader,lp(-1,ui.height(27),0,0,3,6))
@@ -404,6 +418,13 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(0,-2,1f))
         footer.addView(ui.text("MENU  Central de ações",9.5f,ui.muted))
         homeLayer.addView(footer,lp(-1,ui.height(27),safeHorizontal()+4,0,safeHorizontal()+4,5))
+        mediaHub=MediaHub(this,ui,prefs,
+            { mediaApps.filterNot { it.packageName in hiddenApps() }.map { MediaApp(it.name,it.packageName) } },
+            { title,subtitle,back->newPanel(title,subtitle,back).also { activePanel="media" } },
+            { panel != null && activePanel=="media" },{ showActionCenter("action:media") },::openTv,{ view,key->styleHome(view,key) },
+            { homeViews.keys.filter { it.startsWith("media-home:") }.toList().forEach { homeViews.remove(it) } },
+            { wireNavigation(when(prefs.getInt("icon_scale",1)){0->6;2->4;else->5}) })
+        mediaHub?.attachHome(mediaArea)
         centralButton.requestFocus()
     }
 
@@ -430,7 +451,7 @@ class MainActivity : Activity() {
         ui.focus(view,key,14,transparent) { focused ->
             if (focused) {
                 lastHomeFocus = key
-                if (key.startsWith("grid:") || key.startsWith("top:") || key.startsWith("shortcut:")) view.post {
+                if (key.startsWith("grid:") || key.startsWith("top:") || key.startsWith("shortcut:") || key.startsWith("media-home:")) view.post {
                     if (view.hasFocus() && panel == null) {
                         // Include the focus outline in the native scroll request.
                         view.requestRectangleOnScreen(Rect(0, -dp(5), view.width, view.height + dp(5)), economy())
@@ -534,15 +555,18 @@ class MainActivity : Activity() {
         }
         setTextIfChanged(appCount,visible.size.toString() + if(visible.size == 1) " aplicativo" else " aplicativos")
         setTextIfChanged(orderLabel, if (orderFor("top").isEmpty()) "Pelo seu uso" else "Sua ordem")
+        mediaHub?.appsChanged()
         wireNavigation(columns)
         homeLayer.post { requestArtworkUpdate() }
         val initial = firstData
         firstData = false
         if(changed && panel == null) {
+            val previousFocus=currentFocus
             val target = if(initial && !userNavigated) firstHomeView()
                 else homeViews[keep] ?: firstHomeView()
             homeLayer.post {
-                if(!isDestroyed && panel == null && target?.isAttachedToWindow == true) target.requestFocus()
+                if(!isDestroyed && panel == null && target?.isAttachedToWindow == true &&
+                    (currentFocus == null || currentFocus === previousFocus || currentFocus?.isAttachedToWindow == false)) target.requestFocus()
             }
         }
     }
@@ -585,7 +609,10 @@ class MainActivity : Activity() {
     }
 
     private fun wireNavigation(columns: Int) {
-        val first = shortcutViews.firstOrNull() ?: topViews.firstOrNull() ?: gridViews.firstOrNull() ?: centralButton
+        val rows=mediaHub?.homeRows.orEmpty()
+        val firstMedia=rows.firstOrNull().orEmpty()
+        val lastMedia=rows.lastOrNull().orEmpty()
+        val first = shortcutViews.firstOrNull() ?: topViews.firstOrNull() ?: firstMedia.firstOrNull() ?: gridViews.firstOrNull() ?: centralButton
         navViews.forEachIndexed { i,v ->
             v.nextFocusLeftId = navViews[(i-1).coerceAtLeast(0)].id
             v.nextFocusRightId = navViews[(i+1).coerceAtMost(navViews.lastIndex)].id
@@ -595,19 +622,27 @@ class MainActivity : Activity() {
             v.nextFocusLeftId = shortcutViews[(i-1).coerceAtLeast(0)].id
             v.nextFocusRightId = shortcutViews[(i+1).coerceAtMost(shortcutViews.lastIndex)].id
             v.nextFocusUpId = centralButton.id
-            v.nextFocusDownId = topViews.getOrNull(i.coerceAtMost(topViews.lastIndex))?.id ?: gridViews.firstOrNull()?.id ?: v.id
+            v.nextFocusDownId = topViews.getOrNull(i.coerceAtMost(topViews.lastIndex))?.id ?: firstMedia.firstOrNull()?.id ?: gridViews.firstOrNull()?.id ?: v.id
         }
         topViews.forEachIndexed { i,v ->
             v.nextFocusUpId = shortcutViews.getOrNull(i.coerceAtMost(shortcutViews.lastIndex))?.id ?: centralButton.id
             v.nextFocusLeftId = topViews[(i-1).coerceAtLeast(0)].id
             v.nextFocusRightId = topViews[(i+1).coerceAtMost(topViews.lastIndex)].id
-            v.nextFocusDownId = gridViews.getOrNull(i.coerceAtMost(gridViews.lastIndex))?.id ?: v.id
+            v.nextFocusDownId = firstMedia.getOrNull(i.coerceAtMost(firstMedia.lastIndex))?.id ?: gridViews.getOrNull(i.coerceAtMost(gridViews.lastIndex))?.id ?: v.id
         }
+        rows.forEachIndexed { rowIndex,row->row.forEachIndexed { index,v->
+            val before=if(rowIndex>0) rows[rowIndex-1] else topViews.ifEmpty { shortcutViews }
+            val after=if(rowIndex<rows.lastIndex) rows[rowIndex+1] else gridViews
+            v.nextFocusLeftId=row[(index-1).coerceAtLeast(0)].id
+            v.nextFocusRightId=row[(index+1).coerceAtMost(row.lastIndex)].id
+            v.nextFocusUpId=before.getOrNull(index.coerceAtMost(before.lastIndex))?.id ?: centralButton.id
+            v.nextFocusDownId=after.getOrNull(index.coerceAtMost(after.lastIndex))?.id ?: v.id
+        } }
         gridViews.forEachIndexed { i,v ->
             v.nextFocusLeftId = if(i % columns > 0) gridViews[i-1].id else v.id
             v.nextFocusRightId = if(i % columns < columns-1) gridViews.getOrNull(i+1)?.id ?: v.id else v.id
             v.nextFocusUpId = if(i >= columns) gridViews[i-columns].id
-                else topViews.getOrNull(i.coerceAtMost(topViews.lastIndex))?.id ?: shortcutViews.firstOrNull()?.id ?: centralButton.id
+                else lastMedia.getOrNull(i.coerceAtMost(lastMedia.lastIndex))?.id ?: topViews.getOrNull(i.coerceAtMost(topViews.lastIndex))?.id ?: shortcutViews.firstOrNull()?.id ?: centralButton.id
             v.nextFocusDownId = gridViews.getOrNull(i+columns)?.id ?: v.id
         }
     }
@@ -737,6 +772,7 @@ class MainActivity : Activity() {
             sheet.storage(free + " livres de " + total,1f-stat.availableBytes.toFloat()/stat.totalBytes.coerceAtLeast(1L))
         } catch(_: Exception) {}
         sheet.row(PanelAction("action:update", "Atualizar TCL Light", "Versão ${BuildConfig.VERSION_NAME} · Verificar atualizações", TvIcon.Kind.REFRESH) { showUpdates() })
+        sheet.row(PanelAction("action:media","Multimídia e programação","Sua lista, busca e lembretes",TvIcon.Kind.PLAY) { mediaHub?.show() })
         sheet.caption("Mais controles")
         sheet.row(PanelAction("action:shortcuts", "Atalhos de TV e entradas", "Fixar e organizar na tela inicial", TvIcon.Kind.PIN) { showShortcutPicker() })
         sheet.row(PanelAction("action:backup", "Backup local", "Salvar e restaurar sua configuração", TvIcon.Kind.STORAGE) { showBackup() })
@@ -818,6 +854,7 @@ class MainActivity : Activity() {
     @Deprecated("Legacy TV installer result")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if(requestCode == 910) { mediaHub?.onVoiceResult(resultCode,data);return }
         if (requestCode == 901 || requestCode == 902) {
             val uri = data?.data
             if (resultCode == RESULT_OK && uri?.scheme == "content") {
@@ -851,6 +888,12 @@ class MainActivity : Activity() {
             if (intent == null) throw ActivityNotFoundException()
             startActivity(intent)
         } catch (_: Exception) { Toast.makeText(this, "A Play Store não está disponível nesta TV.", Toast.LENGTH_SHORT).show() }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int,permissions: Array<out String>,grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode,permissions,grantResults)
+        if(requestCode==921) mediaHub?.onTvPermissionResult()
+        if(requestCode==920) mediaHub?.onNotificationPermissionResult()
     }
 
     private fun showInfo(title: String,body: String,icon: TvIcon.Kind = TvIcon.Kind.INFO,

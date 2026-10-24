@@ -1,12 +1,15 @@
-# TCL Light 0.9.0
+# TCL Light 0.10.0
 
-- Atalhos de TV e entradas de vídeo na tela inicial, com nomes personalizados, reordenação e remoção pelo controle remoto.
-- Central de rede com estado de internet e IP da TV, atualizado pelos eventos do Android.
-- Ajuste de margens e textos de 100%, 110% e 120%, com proteção do cabeçalho e do cartão em foco.
-- Backup local, exportação/importação e revisão antes de restaurar organização e aparência.
-- Teste opcional de vídeo ao fundo para entradas conectadas, como HDMI: inicialmente desligado, sem áudio, interrompido ao sair do launcher, com retorno ao papel de parede se a TV recusar o acesso. A compatibilidade precisa ser confirmada no firmware da TV.
-- Mesma assinatura permanente da 0.7.0 e da 0.8.0.
+- Central multimídia e atalhos opcionais na tela inicial.
+- Minha lista local com filmes, séries, canais e links: adicionar, renomear, reorganizar, remover e incluir no backup.
+- Busca digitada ou por voz: encaminhamento ao app selecionado quando compatível; alternativa de copiar título e abrir o aplicativo.
+- Programação Agora/a seguir e favoritos a partir dos canais e horários expostos pela TV, com guia nativo como alternativa.
+- Lembretes de programas, itens da lista ou cadastro manual com data e hora, sem troca automática de canal.
+- Continuar assistindo a partir do Watch Next acessível, com progresso e abertura no app de origem.
+- Controles de sessões de mídia ativos, opcionais e mediante autorização no Android.
+- Capas limitadas, cache pequeno e consultas fora da interface para manter a navegação leve.
+- Mesma assinatura permanente desde a 0.7.0.
 
-**Na 0.8.0, abra Central → Atualizar TCL Light → Verificar atualizações.** Você também pode instalar o APK por cima da versão atual, sem desinstalar. A TV pede a confirmação da instalação.
+**Atualize pela TV: Central → Atualizar TCL Light → Verificar atualizações → Baixar → Instalar.** Ou instale o APK por cima, sem desinstalar.
 
-Atalhos: Central → Atalhos de TV e entradas. Margens, textos e teste de vídeo ao fundo: Central → Personalizar aparência. Backup: Central → Backup local.
+Os novos recursos ficam em Central → Multimídia e programação. A integração de histórico, grade, canais online, busca direta e controles depende do que cada aplicativo e o firmware da TCL permitem. O launcher oferece alternativas quando não há acesso. Os avisos podem depender das notificações e do modo de espera da TV.
