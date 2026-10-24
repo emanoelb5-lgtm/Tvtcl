@@ -67,6 +67,8 @@ class MainActivity : Activity() {
     private lateinit var timeLabel: TextView
     private lateinit var dateLabel: TextView
     private lateinit var centralButton: View
+    private lateinit var tvHeaderButton: View
+    private lateinit var updateButton: View
     private lateinit var shortcutArea: LinearLayout
     private lateinit var shortcutStrip: LinearLayout
     private val shortcutViews = ArrayList<View>()
@@ -89,9 +91,17 @@ class MainActivity : Activity() {
     private var updatePhase: UpdatePhase? = null
     private var waitingInstallPermission = false
     private val updateObserver: (UpdateState) -> Unit = { state ->
+        updateHeader(state)
         if (activePanel == "updates") {
             if (updatePhase != state.phase) showUpdates()
             else applyUpdateProgress(state)
+        }
+    }
+    private val automaticUpdates=object:Runnable {
+        override fun run() {
+            if(!foreground) return
+            updates.checkAutomatically()
+            handler.postDelayed(this,15*60*1000L)
         }
     }
     private var videoInputs: List<TvSource> = emptyList()
@@ -203,6 +213,7 @@ class MainActivity : Activity() {
         refreshInputs()
         weather.start()
         updates.observe(updateObserver)
+        handler.postDelayed(automaticUpdates,5000L)
         if(appsDirty) refresh()
         if(usageDirty) { usageDirty = false; renderApps() }
         requestArtworkUpdate()
@@ -222,6 +233,7 @@ class MainActivity : Activity() {
         tvSources.stop()
         weather.stop()
         updates.removeObserver(updateObserver)
+        handler.removeCallbacks(automaticUpdates)
         networkRegistered = false
         super.onStop()
     }
@@ -352,13 +364,20 @@ class MainActivity : Activity() {
         clock.addView(timeLabel)
         clock.addView(dateLabel,LinearLayout.LayoutParams(0,-2,1f).apply { leftMargin=dp(12) })
         nav.addView(clock,LinearLayout.LayoutParams(0,-2,1f))
+        tvHeaderButton=navControl("nav:tv",TvIcon.Kind.TV,"TV e canais",ui.text("TV",11f),iconOnly=true) { openTv() }
+        tvHeaderButton.setOnLongClickListener { showShortcutOptions(shortcuts().firstOrNull { it.key=="tv" } ?: HomeShortcut("tv"));true }
+        nav.addView(tvHeaderButton,lp(dp(34),dp(36),6,0,7));navViews.add(tvHeaderButton)
+        val search=navControl("nav:search",TvIcon.Kind.SEARCH,"Pesquisar filmes e séries",ui.text("Buscar",11f),iconOnly=true) { mediaHub?.showSearchFromHeader() }
+        nav.addView(search,lp(dp(39),dp(39),0,0,7));navViews.add(search)
         networkLabel = ui.text("Rede",11f)
         networkIcon = ImageView(this)
-        val net = navControl("nav:wifi",TvIcon.Kind.WIFI,"Conexão de rede",networkLabel,networkIcon) { showNetwork() }
-        nav.addView(net,lp(dp(80),dp(39),8,0,8)); navViews.add(net)
+        val net = navControl("nav:wifi",TvIcon.Kind.WIFI,"Conexão de rede",networkLabel,networkIcon,true) { showNetwork() }
+        nav.addView(net,lp(dp(39),dp(39),0,0,7)); navViews.add(net)
         deviceLabel = ui.text("Entradas",11f)
-        val devices = navControl("nav:inputs",TvIcon.Kind.CABLE,"Entradas de vídeo",deviceLabel) { showInputs() }
-        nav.addView(devices,lp(dp(92),dp(39),0,0,8)); navViews.add(devices)
+        val devices = navControl("nav:inputs",TvIcon.Kind.CABLE,"Entradas de vídeo",deviceLabel,iconOnly=true) { showInputs() }
+        nav.addView(devices,lp(dp(39),dp(39),0,0,7)); navViews.add(devices)
+        updateButton=navControl("nav:update",TvIcon.Kind.REFRESH,"Atualização disponível",ui.text("Atualizar",11f),iconOnly=true) { showUpdates() }.apply { visibility=View.GONE;isSelected=true }
+        nav.addView(updateButton,lp(dp(39),dp(39),0,0,7));navViews.add(updateButton)
         centralButton = navControl("nav:central",TvIcon.Kind.CONTROLS,"Central de ações",ui.text("Central",11f,medium=true)) { showActionCenter() }
         nav.addView(centralButton,lp(dp(103),dp(39))); navViews.add(centralButton)
 
@@ -423,7 +442,7 @@ class MainActivity : Activity() {
             { title,subtitle,back->newPanel(title,subtitle,back).also { activePanel="media" } },
             { panel != null && activePanel=="media" },{ showActionCenter("action:media") },::openTv,{ view,key->styleHome(view,key) },
             { homeViews.keys.filter { it.startsWith("media-home:") }.toList().forEach { homeViews.remove(it) } },
-            { wireNavigation(when(prefs.getInt("icon_scale",1)){0->6;2->4;else->5}) })
+            { wireNavigation(when(prefs.getInt("icon_scale",1)){0->6;2->4;else->5}) },::closePanel)
         mediaHub?.attachHome(mediaArea)
         centralButton.requestFocus()
     }
@@ -441,13 +460,13 @@ class MainActivity : Activity() {
     }
 
     private fun navControl(key: String,icon: TvIcon.Kind,label: String,text: TextView,
-                           image: ImageView = ImageView(this),action: () -> Unit): View =
+                           image: ImageView = ImageView(this),iconOnly: Boolean=false,action: () -> Unit): View =
         LinearLayout(this).apply {
             gravity = Gravity.CENTER
             image.setImageDrawable(TvIcon(icon,ui.muted))
-            addView(image,lp(dp(19),dp(19),0,0,7))
+            addView(image,lp(dp(19),dp(19),0,0,if(iconOnly) 0 else 7))
             text.maxLines = 1; text.ellipsize = TextUtils.TruncateAt.END
-            addView(text,lp(-2,-2))
+            if(!iconOnly) addView(text,lp(-2,-2))
             contentDescription = label
             styleHome(this,key)
             setOnClickListener { action() }
@@ -615,9 +634,10 @@ class MainActivity : Activity() {
         val firstMedia=rows.firstOrNull().orEmpty()
         val lastMedia=rows.lastOrNull().orEmpty()
         val first = shortcutViews.firstOrNull() ?: topViews.firstOrNull() ?: firstMedia.firstOrNull() ?: gridViews.firstOrNull() ?: centralButton
-        navViews.forEachIndexed { i,v ->
-            v.nextFocusLeftId = navViews[(i-1).coerceAtLeast(0)].id
-            v.nextFocusRightId = navViews[(i+1).coerceAtMost(navViews.lastIndex)].id
+        val visibleNav=navViews.filter { it.visibility==View.VISIBLE }
+        visibleNav.forEachIndexed { i,v ->
+            v.nextFocusLeftId = visibleNav[(i-1).coerceAtLeast(0)].id
+            v.nextFocusRightId = visibleNav[(i+1).coerceAtMost(visibleNav.lastIndex)].id
             v.nextFocusDownId = first.id
         }
         shortcutViews.forEachIndexed { i,v ->
@@ -732,6 +752,7 @@ class MainActivity : Activity() {
     }
 
     private fun newPanel(title: String,subtitle: String,back: (() -> Unit)? = null): LauncherPanel {
+        if(activePanel=="media") mediaHub?.panelClosed()
         activePanel = ""
         updateStatus = null
         updateProgressBar = null
@@ -749,12 +770,13 @@ class MainActivity : Activity() {
 
     private fun closePanel() {
         val old = panel ?: return
+        mediaHub?.panelClosed()
         old.animate().cancel()
         frame.removeView(old); panel = null; panelBack = null; activePanel = ""
         updateStatus = null; updateProgressBar = null
         homeLayer.descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
         homeLayer.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
-        (homeViews[returnFocus] ?: firstHomeView()).requestFocus()
+        (homeViews[returnFocus]?.takeIf { it.isShown } ?: firstHomeView()).requestFocus()
     }
 
     private fun showActionCenter(focus: String? = null) {
@@ -791,6 +813,18 @@ class MainActivity : Activity() {
             Toast.makeText(this,"Atualizando aplicativos…",Toast.LENGTH_SHORT).show()
         })
         sheet.focusAction(focus)
+    }
+
+    private fun updateHeader(state: UpdateState) {
+        if(!::updateButton.isInitialized) return
+        val available=state.release?.versionCode?.let { it>BuildConfig.VERSION_CODE }==true
+        val visible=if(available) View.VISIBLE else View.GONE
+        if(!available && updateButton.hasFocus()) homeViews["nav:search"]?.requestFocus()
+        updateButton.contentDescription=if(available) "Atualização disponível · ${state.release!!.versionName}" else "Atualizações"
+        if(updateButton.visibility!=visible) {
+            updateButton.visibility=visible
+            wireNavigation(when(prefs.getInt("icon_scale",1)) {0->6;2->4;else->5})
+        }
     }
 
     private fun showUpdates() {
@@ -1025,9 +1059,13 @@ class MainActivity : Activity() {
 
     private fun renderShortcuts() {
         if (!::shortcutArea.isInitialized) return
-        val entries = shortcuts().filter { it.key == "tv" || it.source(videoInputs) != null }
+        val saved=shortcuts()
+        val tv=saved.firstOrNull { it.key=="tv" }
+        tvHeaderButton.visibility=if(tv==null) View.GONE else View.VISIBLE
+        tvHeaderButton.contentDescription=tv?.label(videoInputs) ?: "TV e canais"
+        val entries = saved.filter { it.key != "tv" && it.source(videoInputs) != null }
         val signature = entries.joinToString { it.key + it.label(videoInputs) } + "|" + ui.textScale
-        if (signature == shortcutSignature) return
+        if (signature == shortcutSignature) { wireNavigation(when(prefs.getInt("icon_scale",1)) {0->6;2->4;else->5});return }
         shortcutSignature = signature
         val focused = currentFocus?.tag as? String
         shortcutViews.forEach { homeViews.remove(it.tag.toString()) }; shortcutViews.clear()

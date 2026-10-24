@@ -78,10 +78,12 @@ internal enum class UpdatePhase { IDLE, CHECKING, CURRENT, AVAILABLE, DOWNLOADIN
 internal data class UpdateState(val phase: UpdatePhase = UpdatePhase.IDLE, val release: UpdateRelease? = null,
     val percent: Int = 0, val message: String = "Verifique se há uma nova versão do TCL Light.")
 
-/** One opt-in worker, no service, polling, location access or Activity held in the background. */
+/** One worker. Foreground checks are throttled; downloading and installing remain explicit. */
 internal class AppUpdates internal constructor(context: Context,
     private val transport: UpdateTransport = GitHubUpdateTransport(),
-    private val identity: () -> InstalledUpdateApp = { UpdateApkVerifier.installed(context.applicationContext) }) {
+    private val identity: () -> InstalledUpdateApp = { UpdateApkVerifier.installed(context.applicationContext) },
+    private val preferences: android.content.SharedPreferences = context.getSharedPreferences("updates",Context.MODE_PRIVATE),
+    private val now: () -> Long = System::currentTimeMillis) {
     companion object {
         @Volatile private var shared: AppUpdates? = null
         fun get(context: Context): AppUpdates = shared ?: synchronized(this) {
@@ -102,6 +104,24 @@ internal class AppUpdates internal constructor(context: Context,
     @Volatile var state = UpdateState()
         private set
 
+    init {
+        runCatching {
+            val saved=preferences.getString("known_release",null) ?: return@runCatching
+            val release=UpdatePolicy.parse(saved)
+            if(release.versionCode>identity().versionCode && release.minSdk<=Build.VERSION.SDK_INT)
+                state=UpdateState(UpdatePhase.AVAILABLE,release,message="Uma nova versão está disponível.")
+            else preferences.edit().remove("known_release").apply()
+        }
+    }
+
+    /** Only called while Home is visible: at most once per 6 h, or after 15 min on a failed attempt. */
+    fun checkAutomatically(): Boolean {
+        val time=now()
+        if(time-preferences.getLong("last_attempt",0) in 0 until 15*60*1000L ||
+            time-preferences.getLong("last_success",0) in 0 until 6*60*60*1000L) return false
+        return check()
+    }
+
     fun observe(observer: (UpdateState) -> Unit) { observers.add(observer); observer(state) }
     fun removeObserver(observer: (UpdateState) -> Unit) { observers.remove(observer) }
 
@@ -118,10 +138,11 @@ internal class AppUpdates internal constructor(context: Context,
         } catch(_:java.util.concurrent.RejectedExecutionException) { busy.set(false) }
     }
 
-    fun check() {
-        if (!busy.compareAndSet(false, true)) return
+    fun check(): Boolean {
+        if (!busy.compareAndSet(false, true)) return false
         cancelled.set(false)
-        publish(UpdateState(UpdatePhase.CHECKING, message = "Procurando atualizações…"))
+        preferences.edit().putLong("last_attempt",now()).apply()
+        publish(UpdateState(UpdatePhase.CHECKING,release=state.release, message = "Procurando atualizações…"))
         executor.execute {
             try {
                 File(directory, "update.part").delete()
@@ -131,12 +152,15 @@ internal class AppUpdates internal constructor(context: Context,
                 }
                 val release = UpdatePolicy.parse(json)
                 val installed = identity()
+                preferences.edit().putLong("last_success",now()).apply()
                 if (release.versionCode <= installed.versionCode) {
                     apk.delete()
+                    preferences.edit().remove("known_release").apply()
                     complete(UpdateState(UpdatePhase.CURRENT, message = "Você já está na versão mais recente."))
                 } else if (release.minSdk > Build.VERSION.SDK_INT) {
                     throw UpdateFailure("Esta atualização exige uma versão mais recente do Android.")
                 } else {
+                    preferences.edit().putString("known_release",json).apply()
                     if (apk.isFile) {
                         try {
                             UpdateApkVerifier.verify(app.packageManager, apk, release, installed)
@@ -146,8 +170,9 @@ internal class AppUpdates internal constructor(context: Context,
                     }
                     complete(UpdateState(UpdatePhase.AVAILABLE, release, message = "Uma nova versão está disponível."))
                 }
-            } catch (error: Exception) { failed(error) }
+            } catch (error: Exception) { failed(error,state.release) }
         }
+        return true
     }
 
     fun download() {

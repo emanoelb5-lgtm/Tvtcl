@@ -26,6 +26,8 @@ internal class LauncherPanel(private val ui: TvStyle, title: String, subtitle: S
         setPadding(ui.dp(4),ui.dp(4),ui.dp(4),ui.dp(10))
     }
     private val actions = LinkedHashMap<String, View>()
+    private lateinit var body: View
+    private var scrollChanged:()->Unit={}
     private val sheet = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(ui.dp(22),ui.dp(22),ui.dp(22),ui.dp(16))
@@ -84,6 +86,7 @@ internal class LauncherPanel(private val ui: TvStyle, title: String, subtitle: S
         sheet.addView(View(context).apply { background=ui.gradient(ui.alpha(ui.accent,115),ui.alpha(ui.accent,6),0) },
             LinearLayout.LayoutParams(-1,ui.dp(1)).apply { topMargin=ui.dp(5);bottomMargin=ui.dp(12) })
         val scroll = ScrollView(context).apply {
+            setOnScrollChangeListener { _,_,_,_,_->scrollChanged() }
             isVerticalScrollBarEnabled = false
             overScrollMode = View.OVER_SCROLL_NEVER
             clipChildren = true
@@ -91,6 +94,7 @@ internal class LauncherPanel(private val ui: TvStyle, title: String, subtitle: S
             setPadding(0,ui.dp(2),0,ui.dp(4))
             isFillViewport = false
         }
+        body=scroll
         scroll.addView(content)
         sheet.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
         val footer=LinearLayout(context).apply { gravity=Gravity.CENTER_VERTICAL }
@@ -100,6 +104,21 @@ internal class LauncherPanel(private val ui: TvStyle, title: String, subtitle: S
         footer.addView(ui.text("Fechar  ·  Voltar retorna",10f,ui.quiet),LinearLayout.LayoutParams(-2,-2).apply { leftMargin=ui.dp(8) })
         sheet.addView(footer,LinearLayout.LayoutParams(-1,ui.dp(27)).apply { topMargin=ui.dp(10) })
     }
+
+    fun expand() {
+        val margin=ui.dp(maxOf(12,ui.horizontalInset-20))
+        sheet.layoutParams=(sheet.layoutParams as LayoutParams).apply { width=resources.displayMetrics.widthPixels-margin*2 }
+    }
+
+    fun workspace(view: View) {
+        val index=sheet.indexOfChild(body);sheet.removeView(body)
+        sheet.addView(view,index,LinearLayout.LayoutParams(-1,0,1f));body=view
+    }
+
+    fun register(view: View,key: String,transparent: Boolean=false) {
+        ui.focus(view,key,13,transparent);actions[key]=view
+    }
+    fun onScroll(run:()->Unit) { scrollChanged=run }
 
     fun caption(text: String) {
         val line=LinearLayout(context).apply { gravity=Gravity.CENTER_VERTICAL }
