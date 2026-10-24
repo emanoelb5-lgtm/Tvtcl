@@ -67,7 +67,7 @@ internal object UpdatePolicy {
 
 internal object UpdateApkVerifier {
     @Suppress("DEPRECATION")
-    private fun flags() = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES
+    private fun flags() = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES or PackageManager.GET_SIGNATURES
         else PackageManager.GET_SIGNATURES
 
     @Suppress("DEPRECATION")
@@ -76,7 +76,7 @@ internal object UpdateApkVerifier {
 
     @Suppress("DEPRECATION")
     private fun certificate(info: PackageInfo): String {
-        val signatures = if (Build.VERSION.SDK_INT >= 28) info.signingInfo?.apkContentsSigners
+        val signatures = if (Build.VERSION.SDK_INT >= 28) info.signingInfo?.apkContentsSigners ?: info.signatures
             else info.signatures
         if (signatures == null || signatures.size != 1) return ""
         return MessageDigest.getInstance("SHA-256").digest(signatures[0].toByteArray())
@@ -101,10 +101,15 @@ internal object UpdateApkVerifier {
         val archive = manager.getPackageArchiveInfo(file.absolutePath, flags())
             ?: throw UpdateFailure("O arquivo baixado não é um aplicativo válido.")
         val app = archive.applicationInfo
-        if (archive.packageName != UpdatePolicy.PACKAGE || code(archive) != release.versionCode ||
-            archive.versionName != release.versionName || certificate(archive) != UpdatePolicy.CERTIFICATE ||
-            app == null || app.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0 ||
-            (Build.VERSION.SDK_INT >= 24 && app.minSdkVersion > Build.VERSION.SDK_INT))
-            throw UpdateFailure("O aplicativo baixado não corresponde à atualização oficial do TCL Light.")
+        if (archive.packageName != UpdatePolicy.PACKAGE)
+            throw UpdateFailure("O arquivo baixado não é do TCL Light.")
+        if (code(archive) != release.versionCode || archive.versionName != release.versionName)
+            throw UpdateFailure("O arquivo baixado não corresponde à versão anunciada.")
+        if (certificate(archive) != UpdatePolicy.CERTIFICATE)
+            throw UpdateFailure("A assinatura da atualização não é a oficial do TCL Light.")
+        if (app == null || app.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0)
+            throw UpdateFailure("O arquivo baixado não é uma versão de distribuição do TCL Light.")
+        if (Build.VERSION.SDK_INT >= 24 && app.minSdkVersion > Build.VERSION.SDK_INT)
+            throw UpdateFailure("A atualização não é compatível com o Android desta TV.")
     }
 }

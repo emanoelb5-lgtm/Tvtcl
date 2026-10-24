@@ -316,7 +316,6 @@ class MainActivity : Activity() {
             isVerticalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER
             // Focused/scrolled tiles must never draw into the fixed header or footer.
             clipChildren = true; clipToPadding = true; isFillViewport = true
-            setPadding(0, dp(10), 0, dp(10))
             descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
         }
         homeLayer.addView(listScroll,LinearLayout.LayoutParams(-1,0,1f))
@@ -379,7 +378,17 @@ class MainActivity : Activity() {
         }
 
     private fun styleHome(view: View,key: String,transparent: Boolean = false) {
-        ui.focus(view,key,14,transparent) { if(it) lastHomeFocus = key }
+        ui.focus(view,key,14,transparent) { focused ->
+            if (focused) {
+                lastHomeFocus = key
+                if (key.startsWith("grid:") || key.startsWith("top:")) view.post {
+                    if (view.hasFocus() && panel == null) {
+                        // Include the focus outline in the native scroll request.
+                        view.requestRectangleOnScreen(Rect(0, -dp(5), view.width, view.height + dp(5)), economy())
+                    }
+                }
+            }
+        }
         homeViews[key] = view
     }
 
@@ -739,7 +748,12 @@ class MainActivity : Activity() {
                 putExtra(Intent.EXTRA_RETURN_RESULT, true)
             }
             try { startActivityForResult(intent, 802) }
-            catch (_: Exception) { updates.installMessage("O instalador da TV não está disponível. Tente novamente após reiniciar a TV.") }
+            catch (_: ActivityNotFoundException) {
+                // Older vendor installers may only advertise the standard APK VIEW action.
+                try { startActivityForResult(Intent(intent).setAction(Intent.ACTION_VIEW), 802) }
+                catch (_: Exception) { updates.installMessage("O instalador da TV não está disponível. Tente novamente após reiniciar a TV.") }
+            }
+            catch (_: Exception) { updates.installMessage("Não foi possível abrir o instalador da TV. Tente novamente.") }
         }
     }
 

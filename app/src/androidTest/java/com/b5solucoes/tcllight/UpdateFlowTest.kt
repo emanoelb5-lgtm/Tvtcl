@@ -86,11 +86,28 @@ class UpdateFlowTest {
 
     @Test fun testRealApkNeedsThePermanentKeyExpectedVersionAndCompleteBytes() {
         val release = UpdatePolicy.parse(manifest.toString())
-        UpdateApkVerifier.verify(context.packageManager, fixture, release, installed)
+        try { UpdateApkVerifier.verify(context.packageManager, fixture, release, installed) }
+        catch (error: UpdateFailure) {
+            @Suppress("DEPRECATION")
+            val parsed = context.packageManager.getPackageArchiveInfo(fixture.path,
+                android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES or android.content.pm.PackageManager.GET_SIGNATURES)
+            @Suppress("DEPRECATION")
+            val signatures = parsed?.signingInfo?.apkContentsSigners ?: parsed?.signatures
+            val certs = signatures?.map { signature -> java.security.MessageDigest.getInstance("SHA-256")
+                .digest(signature.toByteArray()).joinToString("") { "%02x".format(it) } }
+            fail("${error.message} package=${parsed?.packageName}; code=${parsed?.longVersionCode}; name=${parsed?.versionName}; flags=${parsed?.applicationInfo?.flags}; minSdk=${parsed?.applicationInfo?.minSdkVersion}; certs=$certs")
+        }
         rejects { UpdateApkVerifier.verify(context.packageManager, fixture, release, installed.copy(certificate = "0".repeat(64))) }
         rejects { UpdateApkVerifier.verify(context.packageManager, fixture, release, installed.copy(versionCode = 7)) }
         rejects { UpdateApkVerifier.verify(context.packageManager, fixture, release.copy(versionCode = 8), installed) }
         rejects { UpdateApkVerifier.verify(context.packageManager, fixture, release.copy(versionName = "0.7.1"), installed) }
+        rejects { UpdateApkVerifier.verify(context.packageManager, fixture, release, UpdateApkVerifier.installed(context)) }
+        val original = fixture.readBytes()
+        java.io.RandomAccessFile(fixture, "rw").use { file ->
+            file.seek(128); file.writeByte(original[128].toInt() xor 1)
+        }
+        rejects { UpdateApkVerifier.verify(context.packageManager, fixture, release, installed) }
+        fixture.writeBytes(original)
         fixture.appendBytes(byteArrayOf(1))
         rejects { UpdateApkVerifier.verify(context.packageManager, fixture, release, installed) }
     }

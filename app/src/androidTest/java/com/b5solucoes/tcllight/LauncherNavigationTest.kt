@@ -126,6 +126,10 @@ class LauncherNavigationTest {
                 }
                 assertTrue(visible > 0)
                 assertTrue(screen.currentFocus?.tag.toString().startsWith("grid:"))
+                val selected = screen.currentFocus!!
+                val selectedRect = android.graphics.Rect()
+                assertTrue(selected.getGlobalVisibleRect(selectedRect))
+                assertTrue("O cartão em foco deve aparecer inteiro", selectedRect.height() >= selected.height)
             }
         }
     }
