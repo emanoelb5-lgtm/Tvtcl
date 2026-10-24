@@ -740,13 +740,7 @@ class MainActivity : Activity() {
         }
         updates.prepareInstall {
             if (!foreground || activePanel != "updates") return@prepareInstall
-            val uri = UpdateApkProvider.uri(this)
-            val intent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
-                setDataAndType(uri, UpdateApkProvider.MIME)
-                clipData = ClipData.newRawUri("Atualização TCL Light", uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                putExtra(Intent.EXTRA_RETURN_RESULT, true)
-            }
+            val intent = UpdateApkProvider.installIntent(this)
             try { startActivityForResult(intent, 802) }
             catch (_: ActivityNotFoundException) {
                 // Older vendor installers may only advertise the standard APK VIEW action.

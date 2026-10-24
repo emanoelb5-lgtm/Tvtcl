@@ -66,6 +66,8 @@ internal object UpdatePolicy {
 }
 
 internal object UpdateApkVerifier {
+    // Android 9's archive parser collects certificates only with the legacy flag present.
+    // Request both APIs; a missing signer still fails the permanent-certificate check.
     @Suppress("DEPRECATION")
     private fun flags() = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES or PackageManager.GET_SIGNATURES
         else PackageManager.GET_SIGNATURES

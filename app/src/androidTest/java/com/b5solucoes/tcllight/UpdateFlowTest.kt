@@ -3,6 +3,7 @@ package com.b5solucoes.tcllight
 import android.content.Context
 import android.net.Uri
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import org.json.JSONObject
 import org.junit.After
@@ -188,5 +189,65 @@ class UpdateFlowTest {
         val info = context.packageManager.resolveContentProvider("${context.packageName}.updates", 0)!!
         assertFalse(info.exported)
         assertTrue(info.grantUriPermissions)
+    }
+
+    @Test fun testNativeInstallerCanReadTheGrantedPrivateApk() {
+        val apk = UpdateApkProvider.apk(context)
+        apk.parentFile!!.mkdirs(); fixture.copyTo(apk, overwrite = true)
+        val intent = UpdateApkProvider.installIntent(context)
+        assertNotNull("O instalador nativo deve aceitar o intent", context.packageManager.resolveActivity(intent, 0))
+        fun shell(command: String) {
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand(command))
+                .use { it.readBytes() }
+        }
+        shell("appops set ${context.packageName} REQUEST_INSTALL_PACKAGES allow")
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        try {
+            scenario.onActivity { it.startActivity(intent) }
+            val deadline = android.os.SystemClock.uptimeMillis() + 12000
+            var labelRead = false
+            while (android.os.SystemClock.uptimeMillis() < deadline) {
+                val root = instrumentation.uiAutomation.rootInActiveWindow
+                fun containsLabel(node: android.view.accessibility.AccessibilityNodeInfo?): Boolean {
+                    if (node == null) return false
+                    if (node.text?.toString() == "TCL Light") return true
+                    return (0 until node.childCount).any { containsLabel(node.getChild(it)) }
+                }
+                if (root?.packageName?.toString()?.contains("packageinstaller") == true && containsLabel(root)) {
+                    labelRead = true; break
+                }
+                Thread.sleep(80)
+            }
+            assertTrue("O instalador não conseguiu ler o APK pela URI privada concedida", labelRead)
+            val folder = File(context.getExternalFilesDir(null), "qa").apply { mkdirs() }
+            instrumentation.uiAutomation.takeScreenshot()?.let { bitmap ->
+                File(folder, "updates-install-confirmation.png").outputStream().use {
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                }
+            }
+            // Do not install the old fixture over the debug test runner. Check the native confirmation only.
+        } finally {
+            shell("input keyevent 4")
+            scenario.close()
+            shell("appops set ${context.packageName} REQUEST_INSTALL_PACKAGES default")
+        }
+    }
+
+    @Test fun testGitHubHttpsTransportReadsThePublicReleaseAsset() {
+        val release = UpdatePolicy.parse(manifest.toString())
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        var size = 0L
+        GitHubUpdateTransport().open(release.apkUrl).use { stream ->
+            val buffer = ByteArray(32 * 1024)
+            while (true) {
+                val count = stream.input.read(buffer)
+                if (count < 0) break
+                size += count
+                assertTrue("O download excedeu o limite anunciado", size <= release.size)
+                digest.update(buffer, 0, count)
+            }
+        }
+        assertEquals(release.size, size)
+        assertEquals(release.sha256, digest.digest().joinToString("") { "%02x".format(it) })
     }
 }

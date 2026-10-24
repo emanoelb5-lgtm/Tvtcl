@@ -3,6 +3,8 @@ package com.b5solucoes.tcllight
 import android.content.ContentProvider
 import android.content.ContentValues
 import android.content.Context
+import android.content.Intent
+import android.content.ClipData
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
@@ -17,6 +19,16 @@ class UpdateApkProvider : ContentProvider() {
         internal fun apk(context: Context) = File(context.cacheDir, "updates/update.apk")
         internal fun uri(context: Context): Uri = Uri.parse("content://${context.packageName}.updates/update.apk")
         const val MIME = "application/vnd.android.package-archive"
+        internal fun installIntent(context: Context): Intent {
+            val uri = uri(context)
+            @Suppress("DEPRECATION")
+            return Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+                setDataAndType(uri, MIME)
+                clipData = ClipData.newRawUri("Atualização TCL Light", uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                putExtra(Intent.EXTRA_RETURN_RESULT, true)
+            }
+        }
     }
 
     override fun onCreate() = true
