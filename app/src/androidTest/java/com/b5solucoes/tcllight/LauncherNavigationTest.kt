@@ -84,11 +84,21 @@ class LauncherNavigationTest {
 
     private val samples get() = listOf("sample.files", "sample.video", "sample.music")
     private fun seedOrderCatalog(ids: List<String> = samples) {
+        // This scenario supplies a synthetic catalog; real package broadcasts must not replace it halfway through remote input.
+        onUi {
+            val registered=MainActivity::class.java.getDeclaredField("packageReceiverRegistered").apply { isAccessible=true }
+            if(registered.getBoolean(screen)) {
+                val receiver=MainActivity::class.java.getDeclaredField("packageEvents").apply { isAccessible=true }.get(screen) as android.content.BroadcastReceiver
+                screen.unregisterReceiver(receiver);registered.setBoolean(screen,false)
+            }
+        }
+        instrumentation.waitForIdleSync()
         await { onUi {
             fun flag(name: String)=MainActivity::class.java.getDeclaredField(name).apply { isAccessible=true }.getBoolean(screen)
             !flag("scanning") && !flag("scanAgain")
         } }
         onUi {
+        MainActivity::class.java.getDeclaredField("appsDirty").apply { isAccessible=true }.setBoolean(screen,false)
         val type = Class.forName("com.b5solucoes.tcllight.MainActivity\$TvApp")
         val constructor = type.getDeclaredConstructor(String::class.java, String::class.java, ComponentName::class.java)
             .apply { isAccessible = true }

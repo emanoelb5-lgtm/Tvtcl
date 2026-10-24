@@ -54,6 +54,12 @@ public class MediaFixtureActivity extends Activity {
     }
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
+        handleIntent();
+    }
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);setIntent(intent);handleIntent();
+    }
+    private void handleIntent() {
         if(getIntent().getBooleanExtra("clean_catalog",false)) { cleanCatalog();finish();return; }
         if(getIntent().getBooleanExtra("publish_catalog",false)) {
             TextView status=new TextView(this);

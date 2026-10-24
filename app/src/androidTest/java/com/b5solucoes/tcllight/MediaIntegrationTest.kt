@@ -37,6 +37,15 @@ class MediaIntegrationTest {
         fail("A integração multimídia não atingiu o estado esperado")
     }
     private fun shell(command: String): String = android.os.ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand(command)).use { it.readBytes().toString(Charsets.UTF_8) }
+    private fun windowText(): String {
+        val values=ArrayList<String>()
+        fun read(node:android.view.accessibility.AccessibilityNodeInfo?) {
+            if(node==null) return
+            node.text?.toString()?.let { values.add(it.take(300)) }
+            for(i in 0 until node.childCount) read(node.getChild(i))
+        }
+        read(instrumentation.uiAutomation.rootInActiveWindow);return values.joinToString(" | ")
+    }
 
     @Test fun listRoundTripReordersAndRejectsDuplicatesOversizedOrUnsafeEntries() {
         val one=MediaEntry(title="Filme",packageName=fixture,link="https://example.com/filme")
@@ -143,6 +152,7 @@ class MediaIntegrationTest {
         val component=ComponentName(fixture,MediaFixtureActivity::class.java.name)
         context.startActivity(Intent().setComponent(component).putExtra("publish_catalog",true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         try {
+            await { val text=windowText();assertFalse(text,text.contains("Falha de catálogo:"));text.contains("Catálogo multimídia publicado") }
             val reader=TvMediaCatalog(context)
             await { reader.watch().items.any { it.entry.title=="Documentário compartilhado de teste" && it.entry.packageName==fixture } }
             val watch=reader.watch().items.first { it.entry.packageName==fixture }
