@@ -8,7 +8,6 @@ import android.graphics.drawable.StateListDrawable
 import android.view.View
 import android.widget.TextView
 import android.widget.ImageView
-import android.view.Gravity
 import android.view.animation.DecelerateInterpolator
 
 internal data class LauncherPalette(val name: String, val detail: String, val accent: Int, val base: Int, val panel: Int)

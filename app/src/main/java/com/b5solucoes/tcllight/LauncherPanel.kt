@@ -50,7 +50,11 @@ internal class LauncherPanel(private val ui: TvStyle, title: String, subtitle: S
         val header = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL }
         val symbol = when {
             title.contains("Central") -> TvIcon.Kind.CONTROLS
-            title.contains("Rede") -> TvIcon.Kind.WIFI
+            title.contains("rede",true) -> TvIcon.Kind.WIFI
+            title.contains("Personalizar") || title.contains("Tema") || title.contains("parede") -> TvIcon.Kind.PALETTE
+            title.contains("backup",true) -> TvIcon.Kind.STORAGE
+            title.contains("Busc") -> TvIcon.Kind.SEARCH
+            title.contains("Reproduzindo") || title == "Multimídia" -> TvIcon.Kind.PLAY
             title.contains("Entrada") -> TvIcon.Kind.CABLE
             title.contains("Atualiza") -> TvIcon.Kind.REFRESH
             title.contains("lista",true) -> TvIcon.Kind.PIN

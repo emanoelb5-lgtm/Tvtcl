@@ -156,7 +156,7 @@ internal class MediaHub(private val activity: Activity, private val ui: TvStyle,
             val row=LinearLayout(activity).apply { gravity=Gravity.CENTER_VERTICAL }
             row.addView(ui.text(title,16f,medium=true),LinearLayout.LayoutParams(0,-2,1f))
             row.addView(ui.text(detail,9.5f,ui.quiet).apply { maxLines=1;ellipsize=TextUtils.TruncateAt.END })
-            area.addView(row,LinearLayout.LayoutParams(-1,ui.height(23)).apply { topMargin=ui.dp(4);bottomMargin=ui.dp(5) })
+            area.addView(row,LinearLayout.LayoutParams(-1,ui.height(22)).apply { bottomMargin=ui.dp(4) })
         }
         caption("Multimídia","Seu conteúdo, seus aplicativos")
         val quick=LinearLayout(activity).apply { clipChildren=false;setPadding(ui.dp(4),ui.dp(4),ui.dp(4),ui.dp(4)) }

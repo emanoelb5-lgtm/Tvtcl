@@ -333,7 +333,7 @@ class MainActivity : Activity() {
             background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
                 intArrayOf(ui.mix(ui.base,ui.panelColor,.65f),ui.base))
         }
-        homeLayer.addView(nav,lp(-1,ui.height(68)))
+        homeLayer.addView(nav,lp(-1,ui.height(64)))
         val climate = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
         weatherIcon = ui.iconBadge(TvIcon.Kind.CLOUD,34)
         climate.addView(weatherIcon,lp(dp(34),dp(34),0,0,10))
@@ -386,7 +386,7 @@ class MainActivity : Activity() {
         shortcutStrip = LinearLayout(this).apply { setPadding(dp(4),dp(4),dp(4),dp(4)); clipChildren = false }
         sourcesScroll.addView(shortcutStrip)
         shortcutArea.addView(sourcesScroll,lp(-1,-2))
-        column.addView(shortcutArea,lp(-1,-2,0,0,0,10))
+        column.addView(shortcutArea,lp(-1,-2,0,0,0,8))
         renderShortcuts()
         val usedHeader = section("Mais utilizados","Pelo seu uso")
         orderLabel = (usedHeader as LinearLayout).getChildAt(1) as TextView
@@ -400,9 +400,9 @@ class MainActivity : Activity() {
             setPadding(dp(4),dp(5),dp(4),dp(5))
         }
         favoriteStrip.addView(favorites)
-        column.addView(favoriteStrip,lp(-1,-2,0,0,0,12))
+        column.addView(favoriteStrip,lp(-1,-2,0,0,0,10))
         val mediaArea=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;clipChildren=false;clipToPadding=false }
-        column.addView(mediaArea,lp(-1,-2,0,0,0,12))
+        column.addView(mediaArea,lp(-1,-2,0,0,0,10))
         val appHeader = section("Seus aplicativos","")
         appCount = (appHeader as LinearLayout).getChildAt(1) as TextView
         column.addView(appHeader,lp(-1,ui.height(26),0,0,3,5))
@@ -417,7 +417,7 @@ class MainActivity : Activity() {
         footer.addView(controlHint,
             LinearLayout.LayoutParams(0,-2,1f))
         footer.addView(ui.text("MENU  Central de ações",9.5f,ui.muted))
-        homeLayer.addView(footer,lp(-1,ui.height(27),safeHorizontal()+4,0,safeHorizontal()+4,5))
+        homeLayer.addView(footer,lp(-1,ui.height(24),safeHorizontal()+4,0,safeHorizontal()+4,4))
         mediaHub=MediaHub(this,ui,prefs,
             { mediaApps.filterNot { it.packageName in hiddenApps() }.map { MediaApp(it.name,it.packageName) } },
             { title,subtitle,back->newPanel(title,subtitle,back).also { activePanel="media" } },
@@ -1160,7 +1160,7 @@ class MainActivity : Activity() {
     private fun showBackup() {
         val sheet=newPanel("Backup local","Organização e aparência do seu launcher") { showActionCenter("action:backup") }
         activePanel="backup"
-        sheet.paragraph(backupMessage).tag="backup:status"
+        sheet.notice(backupMessage,TvIcon.Kind.STORAGE).tag="backup:status"
         importedBackup?.let { data -> sheet.row(PanelAction("backup:review","Revisar backup selecionado",data.summary,TvIcon.Kind.INFO) { showBackupPreview(data) }) }
         sheet.row(PanelAction("backup:save","Salvar cópia nesta TV","Guardar a configuração atual",TvIcon.Kind.STORAGE) {
             backupWork({
