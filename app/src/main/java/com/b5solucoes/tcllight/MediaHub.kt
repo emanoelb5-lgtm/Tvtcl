@@ -92,7 +92,8 @@ internal class MediaHub(private val activity: Activity, private val ui: TvStyle,
         started=true
         if(!registered) try { activity.contentResolver.registerContentObserver(android.net.Uri.parse("content://android.media.tv"),true,observer);registered=true } catch(_:Exception) { }
         if(prefs.getBoolean("media.playback",false)) playback.start()
-        if(prefs.getBoolean("media.continue",true)) refreshWatch()
+        if(prefs.getBoolean("media.continue",true) || isOpen() && screen=="watch") refreshWatch()
+        if(isOpen() && screen=="guide") showGuide(focus())
         if(isOpen() && screen == "now") showNow()
         art.start()
     }
@@ -223,6 +224,7 @@ internal class MediaHub(private val activity: Activity, private val ui: TvStyle,
     fun showWatch(focus: String?=null) {
         val s=sheet("Continuar assistindo","Conteúdo compartilhado pelos aplicativos","watch") { show("media:watch") }
         s.paragraph(watch.message)
+        tvPermissionAction(s,"watch:permission")
         watch.items.forEach { item->s.action("watch:"+item.entry.id,item.entry.title,item.progressLabel+" · "+label(item.entry.packageName),TvIcon.Kind.PLAY) { showEntry(item.entry) } }
         s.action("watch:refresh","Atualizar","Consultar os aplicativos novamente",TvIcon.Kind.REFRESH) { refreshWatch() }
         s.action("watch:list","Abrir Minha lista","Sua seleção pessoal",TvIcon.Kind.PIN) { showList() }
@@ -342,6 +344,7 @@ internal class MediaHub(private val activity: Activity, private val ui: TvStyle,
     fun showGuide(focus: String?=null) {
         val s=sheet("Programação","Agora e a seguir","guide") { show("media:guide") }
         s.paragraph(guide.message)
+        tvPermissionAction(s,"media-guide:permission")
         s.action("media-guide:native","Abrir guia da TV","Consultar a programação no aplicativo da TV",TvIcon.Kind.TV) {
             if(!launch(Intent(Intent.ACTION_VIEW,TvContract.Programs.CONTENT_URI))) openTv()
         }
@@ -360,6 +363,25 @@ internal class MediaHub(private val activity: Activity, private val ui: TvStyle,
         val next=guide.channels.flatMap { it.programs }.flatMap { listOf(it.start,it.end) }.filter { it>now }.minOrNull()
         programBoundary=next?.let { at->Runnable { if(started && isOpen() && screen=="guide") showGuide(focus()) }.also { handler.postDelayed(it,(at-now+500L).coerceAtLeast(1000L)) } }
     }
+
+    private fun tvPermissionAction(panel: LauncherPanel,key: String) {
+        if(activity.checkSelfPermission("android.permission.READ_TV_LISTINGS") == android.content.pm.PackageManager.PERMISSION_GRANTED) return
+        panel.action(key,"Permitir acesso à programação","Autorizar os dados compartilhados pela TV",TvIcon.Kind.TV) {
+            try {
+                val info=activity.packageManager.getPermissionInfo("android.permission.READ_TV_LISTINGS",0)
+                if(info.protectionLevel and android.content.pm.PermissionInfo.PROTECTION_MASK_BASE == android.content.pm.PermissionInfo.PROTECTION_DANGEROUS)
+                    if(prefs.getBoolean("media.tv_permission_requested",false) && !activity.shouldShowRequestPermissionRationale("android.permission.READ_TV_LISTINGS"))
+                        launch(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,android.net.Uri.parse("package:"+activity.packageName)))
+                    else { prefs.edit().putBoolean("media.tv_permission_requested",true).apply();activity.requestPermissions(arrayOf("android.permission.READ_TV_LISTINGS"),921) }
+                else if(!launch(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,android.net.Uri.parse("package:"+activity.packageName)))) toast("Esta TV não oferece a autorização de programação.")
+            } catch(_:Exception) { toast("Esta TV não oferece a autorização de programação. Use o guia nativo ou os lembretes manuais.") }
+        }
+    }
+    fun onTvPermissionResult() {
+        guideDirty=true
+        if(started) { refreshWatch();if(isOpen() && screen=="guide") refreshGuide(true) }
+    }
+    fun onNotificationPermissionResult() { if(isOpen() && screen=="reminders") showReminders(focus()) }
     private fun showChannel(channel: GuideChannel) {
         val entry=channel.entry()
         val s=sheet(entry.title,"Programação compartilhada pela TV","channel") { showGuide("media-guide:channel:"+channel.id) }

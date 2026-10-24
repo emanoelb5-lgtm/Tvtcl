@@ -136,6 +136,29 @@ class MediaIntegrationTest {
         assertNull(MediaLinks.search(context,fixture,""))
     }
 
+    @Test fun actualTvProviderSharesOtherAppProgramsAndWatchNextWithGrantedListingsPermission() {
+        // Permission is granted only in this disposable test device; production requests it through Android's UI.
+        shell("pm grant ${context.packageName} android.permission.READ_TV_LISTINGS")
+        assertEquals(android.content.pm.PackageManager.PERMISSION_GRANTED,context.checkSelfPermission("android.permission.READ_TV_LISTINGS"))
+        val component=ComponentName(fixture,MediaFixtureActivity::class.java.name)
+        context.startActivity(Intent().setComponent(component).putExtra("publish_catalog",true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        try {
+            val reader=TvMediaCatalog(context)
+            await { reader.watch().items.any { it.entry.title=="Documentário compartilhado de teste" && it.entry.packageName==fixture } }
+            val watch=reader.watch().items.first { it.entry.packageName==fixture }
+            assertEquals(50,watch.percent)
+            val guide=reader.guide()
+            val channel=guide.channels.firstOrNull { it.name=="Canal multimídia de teste" }
+            assertNotNull("A consulta nativa não encontrou o canal compartilhado: ${guide.message}",channel)
+            assertEquals("105",channel!!.number)
+            assertEquals("Programa agora de teste",channel.now(System.currentTimeMillis())?.title)
+            assertEquals("Próximo programa de teste",channel.next(System.currentTimeMillis())?.title)
+        } finally {
+            context.startActivity(Intent().setComponent(component).putExtra("clean_catalog",true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            // Revoking a runtime permission would kill the instrumentation process; the emulator is discarded.
+        }
+    }
+
     @Test fun realScheduledReminderNotifiesOnceAndCanBeCancelled() {
         val manager=context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val reminder=MediaReminders.add(context,MediaEntry(title="Programa de teste"),System.currentTimeMillis()+60000L)

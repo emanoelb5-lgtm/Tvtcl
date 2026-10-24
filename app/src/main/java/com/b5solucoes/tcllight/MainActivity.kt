@@ -890,6 +890,12 @@ class MainActivity : Activity() {
         } catch (_: Exception) { Toast.makeText(this, "A Play Store não está disponível nesta TV.", Toast.LENGTH_SHORT).show() }
     }
 
+    override fun onRequestPermissionsResult(requestCode: Int,permissions: Array<out String>,grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode,permissions,grantResults)
+        if(requestCode==921) mediaHub?.onTvPermissionResult()
+        if(requestCode==920) mediaHub?.onNotificationPermissionResult()
+    }
+
     private fun showInfo(title: String,body: String,icon: TvIcon.Kind = TvIcon.Kind.INFO,
                          action: String? = null,run: (() -> Unit)? = null) {
         val sheet = newPanel(title,"Informações da TV") { showActionCenter() }

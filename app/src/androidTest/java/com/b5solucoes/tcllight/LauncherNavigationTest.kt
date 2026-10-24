@@ -83,7 +83,12 @@ class LauncherNavigationTest {
     }
 
     private val samples get() = listOf("sample.files", "sample.video", "sample.music")
-    private fun seedOrderCatalog(ids: List<String> = samples) = onUi {
+    private fun seedOrderCatalog(ids: List<String> = samples) {
+        await { onUi {
+            fun flag(name: String)=MainActivity::class.java.getDeclaredField(name).apply { isAccessible=true }.getBoolean(screen)
+            !flag("scanning") && !flag("scanAgain")
+        } }
+        onUi {
         val type = Class.forName("com.b5solucoes.tcllight.MainActivity\$TvApp")
         val constructor = type.getDeclaredConstructor(String::class.java, String::class.java, ComponentName::class.java)
             .apply { isAccessible = true }
@@ -92,6 +97,8 @@ class LauncherNavigationTest {
         }
         MainActivity::class.java.getDeclaredField("mediaApps").apply { isAccessible = true }.set(screen, apps)
         MainActivity::class.java.getDeclaredMethod("renderApps").apply { isAccessible = true }.invoke(screen)
+        }
+        await { onUi { find("grid:"+ids.first())?.let { it.isLaidOut && it.height>0 }==true } }
     }
 
     @Test fun testScrolledCardsStayInsideViewportAtEveryCardSize() {

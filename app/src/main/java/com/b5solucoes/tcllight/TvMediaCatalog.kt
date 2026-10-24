@@ -70,8 +70,10 @@ internal class TvMediaCatalog(context: Context, private val query: (Uri,Array<St
             var programsAllowed=true
             val programs=ArrayList<GuideProgram>()
             try {
-                query(TvContract.Programs.CONTENT_URI,arrayOf("_id","channel_id","title","start_time_utc_millis","end_time_utc_millis"),
-                    "end_time_utc_millis > ? AND start_time_utc_millis < ?",arrayOf(now.toString(),(now+24*60*60*1000L).toString()),signal)?.use { cursor ->
+                // Third-party callers must use the provider's URI time filters; SQL selection requires system access.
+                val programsUri=TvContract.Programs.CONTENT_URI.buildUpon().appendQueryParameter("start_time",now.toString())
+                    .appendQueryParameter("end_time",(now+24*60*60*1000L).toString()).build()
+                query(programsUri,arrayOf("_id","channel_id","title","start_time_utc_millis","end_time_utc_millis"),null,null,signal)?.use { cursor ->
                     var scanned=0
                     while(scanned++ < 1200 && cursor.moveToNext()) {
                         signal.throwIfCanceled()
