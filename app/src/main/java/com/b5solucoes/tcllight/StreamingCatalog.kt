@@ -132,24 +132,41 @@ internal object StreamingPages {
 internal interface CatalogTransport { fun read(query: String): String;fun cancel() {} }
 internal class PublicCatalogTransport:CatalogTransport {
     @Volatile private var connection: HttpsURLConnection?=null
-    override fun read(query: String): String {
-        val c=URL(StreamingPages.searchUrl(query)).openConnection() as HttpsURLConnection
-        c.connectTimeout=5000;c.readTimeout=6000;c.instanceFollowRedirects=false;c.useCaches=false
-        c.setRequestProperty("User-Agent","TCL-Light/${BuildConfig.VERSION_NAME}")
-        c.setRequestProperty("Accept","text/html");c.setRequestProperty("Accept-Encoding","gzip")
-        connection=c
-        val deadline=android.os.SystemClock.elapsedRealtime()+15000L
-        try {
-            require(c.responseCode==200)
-            val input=if(c.contentEncoding.equals("gzip",true)) GZIPInputStream(c.inputStream) else c.inputStream
-            return input.use {
-                val output=java.io.ByteArrayOutputStream();val buffer=ByteArray(8192)
-                while(true) { require(android.os.SystemClock.elapsedRealtime()<deadline);val n=it.read(buffer);if(n<0) break;require(output.size()+n<=StreamingPages.MAX_BYTES);output.write(buffer,0,n) }
-                output.toString("UTF-8")
-            }
-        } finally { c.disconnect();if(connection===c) connection=null }
+    @Volatile private var cancelled=false
+    companion object {
+        fun allowed(url:URL):Boolean=url.protocol=="https" && url.userInfo==null && (url.port==-1 || url.port==443) &&
+            (url.host=="justwatch.com" || url.host=="www.justwatch.com" || url.host.matches(Regex("[a-z]{2}\\.justwatch\\.com"))) && url.path.startsWith("/br/")
     }
-    override fun cancel() { connection?.disconnect() }
+    override fun read(query: String): String {
+        cancelled=false;var target=URL(StreamingPages.searchUrl(query))
+        val deadline=android.os.SystemClock.elapsedRealtime()+15000L
+        repeat(4) {
+            require(!cancelled && allowed(target) && android.os.SystemClock.elapsedRealtime()<deadline)
+            val c=target.openConnection() as HttpsURLConnection
+            c.connectTimeout=5000;c.readTimeout=6000;c.instanceFollowRedirects=false;c.useCaches=false
+            c.setRequestProperty("User-Agent","TCL-Light/${BuildConfig.VERSION_NAME}")
+            c.setRequestProperty("Accept","text/html");c.setRequestProperty("Accept-Encoding","gzip")
+            connection=c
+            try {
+                require(!cancelled)
+                val status=c.responseCode
+                if(status in setOf(301,302,303,307,308)) {
+                    val next=c.getHeaderField("Location") ?: throw IllegalArgumentException("Missing redirect")
+                    target=URL(target,next)
+                } else {
+                    require(status==200)
+                    val input=if(c.contentEncoding.equals("gzip",true)) GZIPInputStream(c.inputStream) else c.inputStream
+                    return input.use { stream->
+                        val output=java.io.ByteArrayOutputStream();val buffer=ByteArray(8192)
+                        while(true) { require(!cancelled && android.os.SystemClock.elapsedRealtime()<deadline);val n=stream.read(buffer);if(n<0) break;require(output.size()+n<=StreamingPages.MAX_BYTES);output.write(buffer,0,n) }
+                        output.toString("UTF-8")
+                    }
+                }
+            } finally { c.disconnect();if(connection===c) connection=null }
+        }
+        throw IllegalArgumentException("Too many redirects")
+    }
+    override fun cancel() { cancelled=true;connection?.disconnect() }
 }
 
 /** Four in-memory searches, 15-minute freshness, one cancellable worker and no periodic catalog activity. */

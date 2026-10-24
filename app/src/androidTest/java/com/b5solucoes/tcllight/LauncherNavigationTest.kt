@@ -586,6 +586,7 @@ class LauncherNavigationTest {
     @Test fun testStreamingSearchDeliversTheQueryToAnExternalApp() {
         fixtureSearch();click("nav:search")
         onUi { (find("media-search:query") as android.widget.EditText).setText("Amazônia") }
+        await { find("media-search:apps")!=null }
         click("media-search:apps")
         click("media-search:app:"+fixture)
         await { nativeNode { it.text?.toString()=="Busca: Amazônia" && it.packageName?.toString()==fixture } != null }

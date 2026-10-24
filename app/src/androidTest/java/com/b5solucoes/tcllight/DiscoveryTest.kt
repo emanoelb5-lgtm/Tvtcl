@@ -65,6 +65,8 @@ class DiscoveryTest {
             try { StreamingPages.parse(html,query);fail("Dados de busca incompatíveis foram aceitos") } catch(_:IllegalArgumentException){}
         }
         for(url in listOf("file:///sdcard/a","https://localhost/x","https://127.0.0.1/x","https://user:pass@example.org/x","https://example.org:444/x")) assertNull(StreamingPages.web(url))
+        assertTrue(PublicCatalogTransport.allowed(java.net.URL("https://br.justwatch.com/br/busca?q=Matrix")))
+        for(url in listOf("http://br.justwatch.com/br/busca","https://br.justwatch.com.evil.example/br/busca","https://br.justwatch.com/us/search")) assertFalse(PublicCatalogTransport.allowed(java.net.URL(url)))
     }
     @Test fun liveBrazilSearchProvidesTitleLevelStreamingLinks() {
         val transport=PublicCatalogTransport()

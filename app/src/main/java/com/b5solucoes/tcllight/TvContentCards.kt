@@ -23,10 +23,8 @@ internal object TvContentCards {
                 super.onMeasure(widthMeasureSpec,View.MeasureSpec.makeMeasureSpec(width*9/16,View.MeasureSpec.EXACTLY))
             }
         }.apply { background=ui.cardSurface(10);clipToOutline=true;importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS }
-        val placeholder=ImageView(context).apply {
-            setImageDrawable(TvIcon(icon,ui.accent));setPadding(ui.dp(34),ui.dp(24),ui.dp(34),ui.dp(24));scaleType=ImageView.ScaleType.FIT_CENTER
-        }
-        cover.addView(placeholder,FrameLayout.LayoutParams(-1,-1))
+        val placeholder=ui.iconBadge(icon,48)
+        cover.addView(placeholder,FrameLayout.LayoutParams(ui.dp(48),ui.dp(48),Gravity.CENTER))
         val image=ImageView(context).apply { scaleType=ImageView.ScaleType.CENTER_CROP }
         cover.addView(image,FrameLayout.LayoutParams(-1,-1));art.bind(image,placeholder,coverUrl)
         cover.addView(View(context).apply {
