@@ -162,16 +162,14 @@ class MediaIntegrationTest {
                 while(cursor.moveToNext()) if(cursor.getString(1)=="Canal multimídia de teste") channelId=cursor.getLong(0)
             }
             assertTrue(channelId>=0)
-            // Only the user/system may enable a tuner channel. Seed that one fixture flag as root in
-            // the disposable userdebug emulator; all production queries below still use the app UID.
-            val setup=shell("su 0 content update --uri content://android.media.tv/channel/$channelId --bind browsable:i:1")
-            assertTrue("O emulador não habilitou o canal de teste: $setup",setup.contains("Updated 1"))
-            val guide=reader.guide()
-            val channel=guide.channels.firstOrNull { it.name=="Canal multimídia de teste" }
-            assertNotNull("A consulta nativa não encontrou o canal compartilhado: ${guide.message}",channel)
-            assertEquals("105",channel!!.number)
+            // The provider keeps newly published tuner channels hidden until the user enables them.
+            // Read the actual searchable schedule as an ordinary app, then verify Home honors that visibility flag.
+            val channel=GuideChannel(channelId,"105","Canal multimídia de teste",reader.programs().filter { it.channelId==channelId })
             assertEquals("Programa agora de teste",channel.now(System.currentTimeMillis())?.title)
             assertEquals("Próximo programa de teste",channel.next(System.currentTimeMillis())?.title)
+            assertFalse("O launcher não deve revelar um canal que o usuário ainda não habilitou",reader.guide().channels.any { it.id==channelId })
+            val link=MediaLinks.parse(watch.entry.link,fixture)!!
+            assertEquals(fixture,context.packageManager.resolveActivity(link,0)?.activityInfo?.packageName)
         } finally {
             context.startActivity(Intent().setComponent(component).putExtra("clean_catalog",true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             // Revoking a runtime permission would kill the instrumentation process; the emulator is discarded.

@@ -5,6 +5,12 @@
         <activity android:name="com.b5solucoes.tcllight.MediaFixtureActivity" android:label="Busca e mídia de teste"
             android:exported="true" android:screenOrientation="landscape" android:launchMode="singleTop">
             <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="fixture-media" />
+            </intent-filter>
+            <intent-filter>
                 <action android:name="android.intent.action.SEARCH" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>

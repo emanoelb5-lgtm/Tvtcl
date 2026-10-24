@@ -68,20 +68,9 @@ internal class TvMediaCatalog(context: Context, private val query: (Uri,Array<St
         if(channels.isEmpty()) GuideCatalog(message="A TV não compartilhou canais com o launcher. Abra o guia da TV ou crie um lembrete manual.")
         else {
             var programsAllowed=true
-            val programs=ArrayList<GuideProgram>()
+            var programs=emptyList<GuideProgram>()
             try {
-                // Third-party callers must use the provider's URI time filters; SQL selection requires system access.
-                val programsUri=TvContract.Programs.CONTENT_URI.buildUpon().appendQueryParameter("start_time",now.toString())
-                    .appendQueryParameter("end_time",(now+24*60*60*1000L).toString()).build()
-                query(programsUri,arrayOf("_id","channel_id","title","start_time_utc_millis","end_time_utc_millis"),null,null,signal)?.use { cursor ->
-                    var scanned=0
-                    while(scanned++ < 1200 && cursor.moveToNext()) {
-                        signal.throwIfCanceled()
-                        val title=cursor.text("title").take(128);val start=cursor.number("start_time_utc_millis");val end=cursor.number("end_time_utc_millis")
-                        if(title.isNotBlank() && end > start && end > now && start < now+24*60*60*1000L)
-                            programs.add(GuideProgram(cursor.number("_id"),cursor.number("channel_id"),title,start,end))
-                    }
-                }
+                programs=this.programs(now,signal)
             } catch(_:Exception) { programsAllowed=false }
             val grouped=programs.groupBy { it.channelId }
             GuideCatalog(channels.distinctBy { it.id }.sortedWith(compareBy<GuideChannel> { it.number.takeWhile { c-> c.isDigit() }.toIntOrNull() ?: Int.MAX_VALUE }.thenBy { it.number })
@@ -92,6 +81,23 @@ internal class TvMediaCatalog(context: Context, private val query: (Uri,Array<St
         }
     } catch(_:SecurityException) { GuideCatalog(message="A TV restringiu o acesso aos canais e horários. Abra o guia da TV ou crie um lembrete manual.") }
     catch(_:Exception) { GuideCatalog(message="A programação não está disponível nesta TV. Abra o guia nativo ou crie um lembrete manual.") }
+
+    fun programs(now: Long = System.currentTimeMillis(),signal: CancellationSignal = CancellationSignal()): List<GuideProgram> {
+        // Third-party callers must use the provider's URI time filters; SQL selection requires system access.
+        val uri=TvContract.Programs.CONTENT_URI.buildUpon().appendQueryParameter("start_time",now.toString())
+            .appendQueryParameter("end_time",(now+24*60*60*1000L).toString()).build()
+        val result=ArrayList<GuideProgram>()
+        query(uri,arrayOf("_id","channel_id","title","start_time_utc_millis","end_time_utc_millis"),null,null,signal)?.use { cursor ->
+            var scanned=0
+            while(scanned++ < 1200 && cursor.moveToNext()) {
+                signal.throwIfCanceled()
+                val title=cursor.text("title").take(128);val start=cursor.number("start_time_utc_millis");val end=cursor.number("end_time_utc_millis")
+                if(title.isNotBlank() && end > start && end > now && start < now+24*60*60*1000L)
+                    result.add(GuideProgram(cursor.number("_id"),cursor.number("channel_id"),title,start,end))
+            }
+        }
+        return result.sortedBy { it.start }
+    }
 
     private fun Cursor.text(name: String): String { val i=getColumnIndex(name);return if(i<0 || isNull(i)) "" else getString(i).orEmpty() }
     private fun Cursor.number(name: String): Long { val i=getColumnIndex(name);return if(i<0 || isNull(i)) 0L else runCatching { getLong(i) }.getOrDefault(0L) }
