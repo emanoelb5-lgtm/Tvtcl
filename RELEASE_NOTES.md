@@ -1,15 +1,14 @@
-# TCL Light 0.10.0
+# TCL Light 0.11.0
 
-- Central multimídia e atalhos opcionais na tela inicial.
-- Minha lista local com filmes, séries, canais e links: adicionar, renomear, reorganizar, remover e incluir no backup.
-- Busca digitada ou por voz: encaminhamento ao app selecionado quando compatível; alternativa de copiar título e abrir o aplicativo.
-- Programação Agora/a seguir e favoritos a partir dos canais e horários expostos pela TV, com guia nativo como alternativa.
-- Lembretes de programas, itens da lista ou cadastro manual com data e hora, sem troca automática de canal.
-- Continuar assistindo a partir do Watch Next acessível, com progresso e abertura no app de origem.
-- Controles de sessões de mídia ativos, opcionais e mediante autorização no Android.
-- Capas limitadas, cache pequeno e consultas fora da interface para manter a navegação leve.
-- Mesma assinatura permanente desde a 0.7.0.
+- Home refinada e mais compacta: aplicativos mais acima, relógio maior, clima em destaque e atalhos alinhados.
+- Três temas de cores: Aurora, Safira e Âmbar, em Central → Personalizar aparência → Tema de cores.
+- Central e painéis redesenhados com ícones em destaque, divisórias delicadas e hierarquia mais clara.
+- Cartões de aplicativos com superfícies uniformes e foco luminoso discreto, mantendo os ícones sem nomes repetidos.
+- Capas de mídia 16:9 com identificação e barra de progresso quando a origem fornece duração válida.
+- Tema incluído no backup, com leitura de backups anteriores.
+- Visual nativo leve, sem novas dependências de execução ou desfoque; modo leve sem animações.
+- Mantidos organização, personalização, multimídia, atualização interna e certificado permanente desde a 0.7.0.
 
 **Atualize pela TV: Central → Atualizar TCL Light → Verificar atualizações → Baixar → Instalar.** Ou instale o APK por cima, sem desinstalar.
 
-Os novos recursos ficam em Central → Multimídia e programação. A integração de histórico, grade, canais online, busca direta e controles depende do que cada aplicativo e o firmware da TCL permitem. O launcher oferece alternativas quando não há acesso. Os avisos podem depender das notificações e do modo de espera da TV.
+As integrações de multimídia continuam dependendo dos dados e acessos disponibilizados pelos aplicativos e pelo firmware da TV.

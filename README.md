@@ -1,12 +1,12 @@
-# TCL Light 0.10.0
+# TCL Light 0.11.0
 
 Launcher nativo em Kotlin para Android TV, com foco em controle remoto e TVs com pouca memória.
 
-[Baixar TCL-Light-0.10.0.apk](https://github.com/emanoelb5-lgtm/Tvtcl/releases/download/v0.10.0/TCL-Light-0.10.0.apk) · [Versões](https://github.com/emanoelb5-lgtm/Tvtcl/releases)
+[Baixar TCL-Light-0.11.0.apk](https://github.com/emanoelb5-lgtm/Tvtcl/releases/download/v0.11.0/TCL-Light-0.11.0.apk) · [Versões](https://github.com/emanoelb5-lgtm/Tvtcl/releases)
 
 ## Instalação e atualizações
 
-Se você já usa a **0.7.0, 0.8.0 ou 0.9.0, instale a 0.10.0 por cima**, sem desinstalar. O pacote e a assinatura permanente são os mesmos; a organização, os ajustes e a escolha de tela inicial são mantidos. As betas anteriores à 0.7.0 usaram chaves de teste diferentes e exigem migração única.
+Se você já usa a **0.7.0 a 0.10.0, instale a 0.11.0 por cima**, sem desinstalar. O pacote e a assinatura permanente são os mesmos; a organização, os ajustes e a escolha de tela inicial são mantidos. As betas anteriores à 0.7.0 usaram chaves de teste diferentes e exigem migração única.
 
 Na 0.8.0 ou posterior, abra **Central → Atualizar TCL Light → Verificar atualizações**. Quando houver uma versão nova, escolha Baixar e depois Instalar. O Android pode pedir que você permita instalações pelo TCL Light; a confirmação final continua sendo feita no instalador da TV. O download é manual, pelo GitHub, sem serviço permanente ou consultas periódicas.
 
@@ -27,6 +27,14 @@ O certificado público fica em [signing/tcl-light-release.pem](signing/tcl-light
 - MENU abre e fecha a Central; Voltar retorna um nível.
 - A Play Store aparece entre os aplicativos quando instalada e habilitada, inclusive como app de sistema, e tem atalho na Central.
 - A faixa superior fica fora da área de rolagem, com recorte dos cartões para que nunca a cubram. Ela reúne clima de Garrafão do Norte, hora, data, rede, entradas e Central. Não há botão de marca nem nomes repetidos sob os cartões.
+
+## Interface na 0.11.0
+
+- Home mais compacta, com cabeçalho fixo, clima em destaque, relógio maior e atalhos de TV e multimídia menores. A grade começa mais acima.
+- Três temas em **Central → Personalizar aparência → Tema de cores**: Aurora (verde), Safira (azul) e Âmbar (champanhe). A escolha entra no backup; backups anteriores continuam aceitos.
+- Painéis com ícones em destaque, títulos e separadores mais claros, cartões e estados de foco consistentes. Os aplicativos continuam sem rótulos repetidos abaixo dos ícones.
+- Capas de mídia em 16:9 com identificação e progresso real quando disponibilizado pelo aplicativo de origem.
+- Gradientes nativos e animação curta apenas em cartões. Sem novas dependências de execução, fontes baixadas ou efeitos de desfoque. O modo leve remove as animações.
 
 ## Multimídia na 0.10.0
 
@@ -70,9 +78,9 @@ Fonte das coordenadas: [IBGE, mapa municipal](https://geoftp.ibge.gov.br/cartas_
 2. Gera APK release unsigned e um APK interno com código maior para testar a atualização; nenhum APK debug é distribuído.
 3. O proprietário assina com a chave permanente usando [tools/sign_release.py](tools/sign_release.py), em ambiente privado.
 4. A branch `signed-releases` contém somente material público de distribuição e o fonte; não contém a chave ou suas senhas.
-5. O workflow valida pacote, versões, hashes, metadados de atualização e certificado fixo. No emulador, instala a 0.9.0 pública, altera uma preferência pela interface e aplica a 0.10.0 com `adb install -r`. Depois aplica um APK interno de código maior. A publicação exige que as duas atualizações preservem o Home alternativo e a preferência.
+5. O workflow valida pacote, versões, hashes, metadados de atualização e certificado fixo. No emulador, instala a 0.10.0 pública, altera uma preferência pela interface e aplica a 0.11.0 com `adb install -r`. Depois aplica um APK interno de código maior. A publicação exige que as duas atualizações preservem o Home alternativo e a preferência.
 
-Depois da publicação, outra instalação limpa da 0.9.0 usa o próprio atualizador para consultar o canal beta, baixar a 0.10.0 e confirmar a instalação no instalador Android. A escolha de Home e a preferência salva também são verificadas nesse caminho.
+Depois da publicação, outra instalação limpa da 0.10.0 usa o próprio atualizador para consultar o canal beta, baixar a 0.11.0 e confirmar a instalação no instalador Android. A escolha de Home e a preferência salva também são verificadas nesse caminho.
 
 O APK interno de teste não é publicado em Releases. O resultado da verificação acompanha o APK público. O teste reproduz o caso em que a imagem Android TV dá prioridade ao Google: desativa o launcher original apenas para o usuário do emulador descartável, confirma o TCL Light como Home e restaura o componente ao terminar. Os testes do atualizador usam o APK público 0.7.0 de assinatura permanente para validar downloads, integridade e identidade; ele só entra no APK de testes. Esses testes não substituem a validação do instalador no firmware da TCL física.
 
