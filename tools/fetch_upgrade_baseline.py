@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pinned public 0.7.0 certificate fixture and 0.8.0 upgrade baseline, never runtime assets."""
+"""Pinned public 0.7.0 certificate fixture and 0.9.0 upgrade baseline, never runtime assets."""
 import hashlib
 from pathlib import Path
 import shutil
@@ -19,11 +19,11 @@ fixture = root / "app/src/androidTest/assets/previous-release.apk"
 fixture.parent.mkdir(parents=True, exist_ok=True)
 shutil.copyfile(apk, fixture)
 print("Official 0.7.0 baseline verified and available to tests")
-current = root / "dist/baseline/TCL-Light-0.8.0.apk"
-digest = "ad191efb99249266b8f474758c4331299d5edb0ae05262847f338c4d6661f414"
+current = root / "dist/baseline/TCL-Light-0.9.0.apk"
+digest = "8cb02a79eadc329bf32fa1e70e66d9d18ac5275d33732bb4403c28e6a5a0f066"
 if not current.is_file() or hashlib.sha256(current.read_bytes()).hexdigest() != digest:
-    with urllib.request.urlopen("https://github.com/emanoelb5-lgtm/Tvtcl/releases/download/v0.8.0/TCL-Light-0.8.0.apk", timeout=60) as response:
+    with urllib.request.urlopen("https://github.com/emanoelb5-lgtm/Tvtcl/releases/download/v0.9.0/TCL-Light-0.9.0.apk", timeout=60) as response:
         data = response.read(4 * 1024 * 1024)
-    assert hashlib.sha256(data).hexdigest() == digest, "A versão 0.8.0 de referência foi alterada"
+    assert hashlib.sha256(data).hexdigest() == digest, "A versão 0.9.0 de referência foi alterada"
     current.write_bytes(data)
-print("Official 0.8.0 baseline verified for in-place updates")
+print("Official 0.9.0 baseline verified for in-place updates")

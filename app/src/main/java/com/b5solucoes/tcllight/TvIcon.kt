@@ -10,7 +10,8 @@ import android.graphics.drawable.Drawable
 /** Small vector glyphs; no emoji fonts, bitmap assets or animation loop. */
 internal class TvIcon(private val kind: Kind, color: Int) : Drawable() {
     enum class Kind { WIFI, CABLE, DEVICES, TV, HOME, REFRESH, CONTROLS, GRID, CLOSE,
-        CHEVRON, PALETTE, LEAF, STORAGE, PIN, EYE, INFO, IMAGE, SUN, CLOUD, RAIN, LEFT, RIGHT, SIZE, CHECK }
+        CHEVRON, PALETTE, LEAF, STORAGE, PIN, EYE, INFO, IMAGE, SUN, CLOUD, RAIN, LEFT, RIGHT, SIZE, CHECK,
+        SEARCH, MIC, PLAY, PAUSE, CALENDAR, BELL }
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         this.color = color
         style = Paint.Style.STROKE
@@ -26,6 +27,12 @@ internal class TvIcon(private val kind: Kind, color: Int) : Drawable() {
         path.reset()
         fun line(x: Float, y: Float, x2: Float, y2: Float) = canvas.drawLine(x,y,x2,y2,paint)
         when (kind) {
+            Kind.SEARCH -> { canvas.drawCircle(10f,10f,6f,paint);line(14.5f,14.5f,21f,21f) }
+            Kind.MIC -> { canvas.drawRoundRect(9f,2f,15f,15f,3f,3f,paint);canvas.drawArc(5f,6f,19f,19f,0f,180f,false,paint);line(12f,19f,12f,23f);line(8f,23f,16f,23f) }
+            Kind.PLAY -> { path.moveTo(7f,3f);path.lineTo(21f,12f);path.lineTo(7f,21f);path.close();canvas.drawPath(path,paint) }
+            Kind.PAUSE -> { line(8f,4f,8f,20f);line(16f,4f,16f,20f) }
+            Kind.CALENDAR -> { canvas.drawRoundRect(3f,5f,21f,22f,2f,2f,paint);line(3f,10f,21f,10f);line(8f,2f,8f,7f);line(16f,2f,16f,7f);line(8f,15f,10f,15f);line(14f,15f,16f,15f) }
+            Kind.BELL -> { path.moveTo(4f,18f);path.lineTo(7f,14f);path.lineTo(7f,9f);path.cubicTo(7f,2f,17f,2f,17f,9f);path.lineTo(17f,14f);path.lineTo(20f,18f);path.close();canvas.drawPath(path,paint);canvas.drawArc(9f,18f,15f,23f,0f,180f,false,paint) }
             Kind.WIFI -> {
                 canvas.drawArc(2f,5f,22f,23f,222f,96f,false,paint)
                 canvas.drawArc(6f,10f,18f,22f,224f,92f,false,paint)
