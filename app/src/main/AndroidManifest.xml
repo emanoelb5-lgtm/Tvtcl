@@ -5,6 +5,7 @@
     <!-- Clima por HTTPS para cidade fixa; nenhuma permissão de localização. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <application
         android:label="TCL Light"
         android:banner="@drawable/tv_banner"
@@ -13,6 +14,11 @@
         android:usesCleartextTraffic="false"
         android:allowBackup="false"
         android:supportsRtl="true">
+        <provider
+            android:name=".UpdateApkProvider"
+            android:authorities="${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

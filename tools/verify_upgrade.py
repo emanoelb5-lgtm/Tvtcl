@@ -48,10 +48,7 @@ def eco_node():
     raise RuntimeError("O cartão Modo leve não apareceu na central")
 
 def open_home():
-    # Some TV images keep a persistent OEM Home even after set-home-activity says Success.
-    # Test the actual release UI explicitly in that case; never disable the stock launcher.
-    request = ("-a", "android.intent.action.MAIN", "-c", "android.intent.category.HOME") \
-        if resolved_home().startswith(pkg + "/") else ("-n", pkg + "/.MainActivity")
+    request = ("-a", "android.intent.action.MAIN", "-c", "android.intent.category.HOME")
     result = shell("am", "start", "-W", *request)
     (qa / "home-launch.txt").write_text(result)
     for _ in range(12):
@@ -65,19 +62,30 @@ def resolved_home():
     return shell("cmd", "package", "resolve-activity", "--brief", "-a", "android.intent.action.MAIN",
         "-c", "android.intent.category.HOME").splitlines()[-1]
 
-assert "Success" in adb("install", str(root / "dist/signed" / ("TCL-Light-" + version["version_name"] + ".apk")))
+# Reproduce the owner's verified setup: the factory Google launcher stays installed,
+# disabled only for user 0 inside this disposable emulator. Restore it after diagnostics.
+baseline = root / "dist/baseline/TCL-Light-0.7.0.apk"
+assert "Success" in adb("install", str(baseline))
 home_request = shell("cmd", "package", "set-home-activity", "--user", "0", pkg + "/.MainActivity")
 (qa / "home-request.txt").write_text(home_request)
 assert "Success" in home_request
+stock_home = resolved_home().split("/")[0]
+if stock_home == "com.google.android.tvlauncher":
+    disabled = shell("pm", "disable-user", "--user", "0", stock_home)
+    assert "disabled-user" in disabled
+    # atexit runs in reverse registration order: capture diagnostics before restoring Home.
+    atexit.unregister(diagnostics)
+    atexit.register(lambda: shell("pm", "enable", "--user", "0", stock_home))
+    atexit.register(diagnostics)
 initial_home = resolved_home()
-custom_home_selected = initial_home.startswith(pkg + "/")
+assert initial_home.startswith(pkg + "/"), "O emulador não selecionou o launcher alternativo"
 open_home()
 shell("input", "keyevent", "82")
 before = eco_node()
-shell("input", "keyevent", "20")  # Down: TV e canais.
-shell("input", "keyevent", "22")  # Right: Modo leve.
+shell("input", "keyevent", "20")
+shell("input", "keyevent", "22")
 assert eco_node().get("focused") == "true", "O controle não alcançou o Modo leve"
-shell("input", "keyevent", "23")  # OK activates the focused card.
+shell("input", "keyevent", "23")
 saved = before.attrib["content-desc"]
 for _ in range(6):
     saved = eco_node().attrib["content-desc"]
@@ -87,23 +95,25 @@ assert saved != before.attrib["content-desc"], "A preferência não foi alterada
 shell("screencap", "-p", "/sdcard/tcl-upgrade-before.png")
 adb("pull", "/sdcard/tcl-upgrade-before.png", str(qa / "before.png"))
 home = resolved_home()
-assert home == initial_home, "A definição de Home mudou antes da atualização"
-result = adb("install", "-r", str(root / "dist/signed/upgrade-probe.apk"))
-assert "Success" in result, "O Android recusou a atualização sobre a versão instalada"
-assert resolved_home() == home, "A atualização perdeu a escolha da tela inicial"
-open_home()
-shell("input", "keyevent", "82")
-assert eco_node().attrib["content-desc"] == saved, "A atualização perdeu a preferência salva"
-shell("screencap", "-p", "/sdcard/tcl-upgrade-after.png")
-adb("pull", "/sdcard/tcl-upgrade-after.png", str(qa / "after.png"))
-report = {"version": version["version_name"], "installed_code": version["version_code"],
-    "internal_upgrade_code": version["upgrade_probe_code"], "update_result": "Success",
-    "test_environment": "Android TV API 28, 1280x720",
-    "home_resolution_unchanged": True, "resolved_home": home,
-    "custom_home_selected": custom_home_selected,
-    "custom_home_preserved": True if custom_home_selected else None,
-    "home_test_limitation": None if custom_home_selected else "TV image kept its persistent stock Home; custom Home selection was not verified",
-    "preference_preserved": True,
+updates = []
+for name, code in [("TCL-Light-" + version["version_name"] + ".apk", version["version_code"]),
+                   ("upgrade-probe.apk", version["upgrade_probe_code"])]:
+    result = adb("install", "-r", str(root / "dist/signed" / name))
+    assert "Success" in result, "O Android recusou a atualização sobre a versão instalada"
+    assert resolved_home() == home, "A atualização perdeu a escolha da tela inicial"
+    # Actual HOME dispatch, not an explicit component launch.
+    open_home()
+    shell("input", "keyevent", "82")
+    assert eco_node().attrib["content-desc"] == saved, "A atualização perdeu a preferência salva"
+    shell("screencap", "-p", "/sdcard/tcl-upgrade-after.png")
+    adb("pull", "/sdcard/tcl-upgrade-after.png", str(qa / ("after-code-" + str(code) + ".png")))
+    updates.append({"target_code": code, "result": "Success", "home_preserved": True, "preference_preserved": True})
+report = {"version": version["version_name"], "baseline_version": "0.7.0", "baseline_code": 7,
+    "installed_code": version["version_code"], "internal_upgrade_code": version["upgrade_probe_code"],
+    "updates": updates, "update_result": "Success", "test_environment": "Android TV API 28, 1280x720",
+    "stock_launcher_disabled_for_test": stock_home == "com.google.android.tvlauncher",
+    "home_resolution_unchanged": True, "resolved_home": home, "custom_home_selected": True,
+    "custom_home_preserved": True, "preference_preserved": True,
     "certificate_sha256": (root / "signing/certificate.sha256").read_text().strip()}
 (qa / ("TCL-Light-" + version["version_name"] + "-verificacao.json")).write_text(json.dumps(report, indent=2) + "\n")
 print(json.dumps(report, indent=2))

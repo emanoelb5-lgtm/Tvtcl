@@ -83,15 +83,83 @@ class LauncherNavigationTest {
     }
 
     private val samples get() = listOf("sample.files", "sample.video", "sample.music")
-    private fun seedOrderCatalog() = onUi {
+    private fun seedOrderCatalog(ids: List<String> = samples) = onUi {
         val type = Class.forName("com.b5solucoes.tcllight.MainActivity\$TvApp")
         val constructor = type.getDeclaredConstructor(String::class.java, String::class.java, ComponentName::class.java)
             .apply { isAccessible = true }
-        val apps = samples.mapIndexed { index, id ->
+        val apps = ids.mapIndexed { index, id ->
             constructor.newInstance("Aplicativo " + index, id, ComponentName(fixture, FixtureActivity::class.java.name))
         }
         MainActivity::class.java.getDeclaredField("mediaApps").apply { isAccessible = true }.set(screen, apps)
         MainActivity::class.java.getDeclaredMethod("renderApps").apply { isAccessible = true }.invoke(screen)
+    }
+
+    @Test fun testScrolledCardsStayInsideViewportAtEveryCardSize() {
+        val ids = (0 until 42).map { "sample.app.$it" }
+        val header = find("home:header")!!
+        val original = android.graphics.Rect()
+        onUi { header.getGlobalVisibleRect(original) }
+        for (size in 0..2) {
+            instrumentation.targetContext.getSharedPreferences("launcher", 0).edit()
+                .putInt("icon_scale", size).commit()
+            seedOrderCatalog(ids)
+            onUi { find("grid:" + ids.first())!!.requestFocus() }
+            repeat(18) { key(KeyEvent.KEYCODE_DPAD_DOWN) }
+            SystemClock.sleep(350L)
+            onUi {
+                val viewport = find("home:viewport") as android.widget.ScrollView
+                assertTrue("O cenário deve realmente rolar", viewport.scrollY > 0)
+                val headerAfter = android.graphics.Rect()
+                header.getGlobalVisibleRect(headerAfter)
+                assertEquals("O cabeçalho deve permanecer fixo", original, headerAfter)
+                val location = IntArray(2)
+                viewport.getLocationOnScreen(location)
+                var visible = 0
+                for (id in ids) {
+                    val card = find("grid:" + id) ?: continue
+                    val rect = android.graphics.Rect()
+                    if (card.getGlobalVisibleRect(rect)) {
+                        visible++
+                        assertTrue("Um cartão invadiu a barra superior", rect.top >= location[1] + viewport.paddingTop)
+                        assertTrue("Um cartão invadiu o rodapé", rect.bottom <= location[1] + viewport.height - viewport.paddingBottom)
+                    }
+                }
+                assertTrue(visible > 0)
+                assertTrue(screen.currentFocus?.tag.toString().startsWith("grid:"))
+                val selected = screen.currentFocus!!
+                val selectedRect = android.graphics.Rect()
+                assertTrue(selected.getGlobalVisibleRect(selectedRect))
+                assertTrue("O cartão em foco deve aparecer inteiro", selectedRect.height() >= selected.height)
+            }
+        }
+    }
+
+    @Test fun testPlayStoreIsAllowedWithoutExposingTechnicalSystemApps() {
+        onUi {
+            val policy = MainActivity::class.java.getDeclaredMethod("isVisibleSystemApp", String::class.java,
+                String::class.java, Int::class.javaPrimitiveType).apply { isAccessible = true }
+            assertEquals(true, policy.invoke(screen, "com.android.vending", "Google Play Store", -1))
+            assertEquals(false, policy.invoke(screen, "com.android.settings", "Configurações", -1))
+            assertEquals(false, policy.invoke(screen, "com.google.android.packageinstaller", "Instalador", -1))
+        }
+        val manager = instrumentation.targetContext.packageManager
+        if (manager.getLeanbackLaunchIntentForPackage("com.android.vending") != null ||
+            manager.getLaunchIntentForPackage("com.android.vending") != null) {
+            assertNotNull("A loja instalada deve aparecer na grade", find("grid:com.android.vending"))
+            key(KeyEvent.KEYCODE_MENU)
+            assertNotNull(find("action:store"))
+        }
+    }
+
+    @Test fun testUpdatesPanelUsesRemoteAndReturnsToItsAction() {
+        key(KeyEvent.KEYCODE_MENU)
+        click("action:update")
+        await { find("update:check")?.hasFocus() == true }
+        assertNotNull(find("update:status"))
+        key(KeyEvent.KEYCODE_BACK)
+        await { find("action:update")?.hasFocus() == true }
+        key(KeyEvent.KEYCODE_BACK)
+        assertNull(find("launcher-panel"))
     }
 
     private fun laneOrder(lane: String): List<String> = onUi {
@@ -282,6 +350,9 @@ class LauncherNavigationTest {
         key(KeyEvent.KEYCODE_MENU)
         await { find("action:wifi")?.hasFocus() == true }
         capture("action-center.png")
+        click("action:update")
+        capture("updates.png")
+        key(KeyEvent.KEYCODE_BACK)
         click("action:customize")
         capture("customization.png")
         key(KeyEvent.KEYCODE_BACK)
@@ -290,5 +361,11 @@ class LauncherNavigationTest {
         key(KeyEvent.KEYCODE_MENU)
         onUi { find("grid:" + fixture)!!.performLongClick() }
         capture("app-options.png")
+        key(KeyEvent.KEYCODE_MENU)
+        val many = (0 until 42).map { "sample.scroll.$it" }
+        seedOrderCatalog(many)
+        onUi { find("grid:" + many.first())!!.requestFocus() }
+        repeat(16) { key(KeyEvent.KEYCODE_DPAD_DOWN) }
+        capture("home-scrolled.png")
     }
 }
