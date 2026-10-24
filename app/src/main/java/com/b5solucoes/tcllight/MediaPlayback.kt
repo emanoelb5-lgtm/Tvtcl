@@ -60,7 +60,7 @@ internal class MediaPlayback(private val context: Context, private val handler: 
     private fun refreshInfo() {
         selected=controllers.sortedBy { when(it.playbackState?.state) { PlaybackState.STATE_PLAYING->0;PlaybackState.STATE_PAUSED->1;else->2 } }.firstOrNull()
         val active=selected
-        info=if(active == null) PlaybackInfo() else {
+        val next=if(active == null) PlaybackInfo() else {
             val meta=active.metadata;val state=active.playbackState;val actions=state?.actions ?: 0L
             fun supports(action: Long)=actions and action != 0L || actions and PlaybackState.ACTION_PLAY_PAUSE != 0L
             PlaybackInfo(active.packageName,meta?.getString(MediaMetadata.METADATA_KEY_TITLE)?.take(160)?.ifBlank { null }
@@ -68,7 +68,7 @@ internal class MediaPlayback(private val context: Context, private val handler: 
                 meta?.getString(MediaMetadata.METADATA_KEY_ARTIST)?.take(160).orEmpty().ifBlank { if(state?.state == PlaybackState.STATE_PLAYING) "Em reprodução" else "Reprodução pausada ou encerrada" },
                 state?.state == PlaybackState.STATE_PLAYING,supports(PlaybackState.ACTION_PLAY),supports(PlaybackState.ACTION_PAUSE))
         }
-        changed()
+        if(next != info) { info=next;changed() }
     }
     fun toggle(): Boolean { return try {
         val active=selected ?: return false

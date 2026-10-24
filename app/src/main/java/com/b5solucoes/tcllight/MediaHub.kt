@@ -43,7 +43,7 @@ internal class MediaHub(private val activity: Activity, private val ui: TvStyle,
     private val worker=Executors.newSingleThreadExecutor { r->Thread(r,"tv-media-catalog") }
     private val catalog=TvMediaCatalog(activity.applicationContext)
     private val art=MediaArt(activity.applicationContext,handler)
-    private val playback=MediaPlayback(activity,handler) { if(started) { renderHome();if(isOpen() && screen == "now") showNow(focus()) } }
+    private val playback=MediaPlayback(activity,handler) { if(started && isOpen() && screen == "now") showNow(focus()) }
     private var home: LinearLayout?=null
     val homeRows=ArrayList<List<View>>()
     private var homeSignature=""
@@ -56,6 +56,7 @@ internal class MediaHub(private val activity: Activity, private val ui: TvStyle,
     private var guideDirty=true
     private var guideAt=0L
     private var registered=false
+    private var programBoundary: Runnable?=null
     private val signals=ArrayList<CancellationSignal>()
     private var watch=WatchCatalog()
     private var guide=GuideCatalog()
@@ -98,6 +99,7 @@ internal class MediaHub(private val activity: Activity, private val ui: TvStyle,
     fun stop() {
         started=false;watchAgain=false
         handler.removeCallbacks(changed)
+        programBoundary?.let { handler.removeCallbacks(it) };programBoundary=null
         signals.toList().forEach { it.cancel() }
         if(registered) runCatching { activity.contentResolver.unregisterContentObserver(observer) }
         registered=false;playback.stop();art.stop()
@@ -354,6 +356,9 @@ internal class MediaHub(private val activity: Activity, private val ui: TvStyle,
         }
         s.action("media-guide:refresh","Atualizar programação","Consultar os dados da TV",TvIcon.Kind.REFRESH) { guideDirty=true;refreshGuide(true) }
         s.focusAction(focus);refreshGuide()
+        programBoundary?.let { handler.removeCallbacks(it) }
+        val next=guide.channels.flatMap { it.programs }.flatMap { listOf(it.start,it.end) }.filter { it>now }.minOrNull()
+        programBoundary=next?.let { at->Runnable { if(started && isOpen() && screen=="guide") showGuide(focus()) }.also { handler.postDelayed(it,(at-now+500L).coerceAtLeast(1000L)) } }
     }
     private fun showChannel(channel: GuideChannel) {
         val entry=channel.entry()
@@ -380,12 +385,16 @@ internal class MediaHub(private val activity: Activity, private val ui: TvStyle,
         val s=sheet("Lembretes","Sua programação pessoal","reminders") { show("media:reminders") }
         s.action("media-reminders:add","Novo lembrete","Escolher programa e horário",TvIcon.Kind.BELL) { showReminderSources() }
         val manager=activity.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if(!manager.areNotificationsEnabled()) {
+        if(Build.VERSION.SDK_INT >= 24 && !manager.areNotificationsEnabled()) {
             s.paragraph("Os avisos estão desativados no Android. Os horários continuam disponíveis nesta lista.")
             s.action("media-reminders:permission","Permitir avisos","Abrir ajustes de notificações",TvIcon.Kind.BELL) {
                 if(Build.VERSION.SDK_INT >= 33 && activity.checkSelfPermission("android.permission.POST_NOTIFICATIONS") != android.content.pm.PackageManager.PERMISSION_GRANTED)
                     activity.requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"),920)
-                else if(!launch(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE,activity.packageName))) toast("Abra os ajustes de notificações da TV para permitir os avisos.")
+                else {
+                    val settings=if(Build.VERSION.SDK_INT >= 26) Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE,activity.packageName)
+                        else Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,android.net.Uri.parse("package:"+activity.packageName))
+                    if(!launch(settings)) toast("Abra os ajustes de notificações da TV para permitir os avisos.")
+                }
             }
         }
         val entries=MediaReminders.read(activity).sortedBy { it.startsAt }

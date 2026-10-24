@@ -25,27 +25,6 @@ import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** Remote-package search/session fixture, confined to the test APK. */
-class MediaFixtureActivity: Activity() {
-    companion object { private var session: MediaSession?=null }
-    override fun onCreate(state: Bundle?) {
-        super.onCreate(state)
-        if(intent.getBooleanExtra("release_media",false)) { session?.release();session=null;finish();return }
-        if(intent.getBooleanExtra("start_media",false)) {
-            session?.release()
-            session=MediaSession(applicationContext,"TCL Light integration fixture").apply {
-                fun playback(playing: Boolean) { setPlaybackState(PlaybackState.Builder().setState(if(playing)PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED,120000,1f)
-                    .setActions(PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_PLAY_PAUSE).build()) }
-                setMetadata(MediaMetadata.Builder().putString(MediaMetadata.METADATA_KEY_TITLE,"Filme de teste").putString(MediaMetadata.METADATA_KEY_ARTIST,"Streaming de teste").build())
-                setCallback(object:MediaSession.Callback() { override fun onPlay()=playback(true);override fun onPause()=playback(false) },Handler(Looper.getMainLooper()))
-                setSessionActivity(PendingIntent.getActivity(this@MediaFixtureActivity,17,Intent(this@MediaFixtureActivity,MediaFixtureActivity::class.java),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
-                playback(true);isActive=true
-            }
-        }
-        setContentView(TextView(this).apply { text=if(intent.action==Intent.ACTION_SEARCH) "Busca: "+intent.getStringExtra(SearchManager.QUERY) else "Filme de teste" })
-    }
-}
-
 @RunWith(AndroidJUnit4::class)
 class MediaIntegrationTest {
     private val instrumentation get()=InstrumentationRegistry.getInstrumentation()

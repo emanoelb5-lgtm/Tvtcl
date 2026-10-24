@@ -18,13 +18,13 @@ internal class MediaArt(context: Context, private val handler: Handler) {
     private val cache=object:LruCache<String,Bitmap>(2*1024*1024) { override fun sizeOf(key: String,value: Bitmap)=value.byteCount }
     private val bindings=ArrayList<Binding>()
     private class Binding(val image: ImageView,val placeholder: View,val uri: String,var loading: Boolean=false,var attempted: Boolean=false)
-    private var foreground=false
-    private var closed=false
+    @Volatile private var foreground=false
+    @Volatile private var closed=false
     fun clearBindings() { bindings.clear() }
     fun bind(image: ImageView,placeholder: View,uri: String) { if(uri.isNotEmpty()) bindings.add(Binding(image,placeholder,uri)) }
-    fun start() { foreground=true;refreshVisible() }
+    fun start() { foreground=true;bindings.forEach { it.attempted=false };refreshVisible() }
     fun stop() { foreground=false;bindings.forEach { it.image.setImageDrawable(null);it.placeholder.visibility=View.VISIBLE } }
-    fun trim() { cache.evictAll() }
+    fun trim() { cache.evictAll();bindings.forEach { it.image.setImageDrawable(null);it.placeholder.visibility=View.VISIBLE;it.attempted=true } }
     fun close() { closed=true;stop();bindings.clear();cache.evictAll();worker.shutdownNow() }
     fun refreshVisible() {
         for(binding in bindings) {
@@ -36,7 +36,7 @@ internal class MediaArt(context: Context, private val handler: Handler) {
             binding.loading=true;binding.attempted=true
             worker.execute {
                 val bitmap=runCatching { read(binding.uri) }.getOrNull()
-                if(bitmap != null) cache.put(binding.uri,bitmap)
+                if(bitmap != null && foreground && !closed) cache.put(binding.uri,bitmap)
                 handler.post {
                     binding.loading=false
                     if(!closed && foreground && binding.image.isAttachedToWindow && binding.image.getGlobalVisibleRect(android.graphics.Rect()) && bitmap != null) {
@@ -56,13 +56,16 @@ internal class MediaArt(context: Context, private val handler: Handler) {
                 val current=url.openConnection() as HttpsURLConnection
                 current.connectTimeout=3000;current.readTimeout=3000;current.instanceFollowRedirects=false
                 current.setRequestProperty("Accept","image/*")
-                val status=current.responseCode
-                if(status in 300..399) { val next=current.getHeaderField("Location") ?: error("Sem imagem");current.disconnect();url=URL(url,next) }
-                else { require(status == 200);resolved=current;break }
+                try {
+                    val status=current.responseCode
+                    if(status in 300..399) { val next=current.getHeaderField("Location");current.disconnect();if(next==null) return null;url=URL(url,next) }
+                    else if(status == 200) { resolved=current;break }
+                    else { current.disconnect();return null }
+                } catch(error:Exception) { current.disconnect();throw error }
             }
             connection=resolved ?: return null
-            if(connection.contentLengthLong > 1024*1024) { connection.disconnect();return null }
-            connection.inputStream
+            if((connection.getHeaderField("Content-Length")?.toLongOrNull() ?: -1L) > 1024*1024) { connection.disconnect();return null }
+            try { connection.inputStream } catch(error:Exception) { connection.disconnect();throw error }
         } else app.contentResolver.openInputStream(uri) ?: return null
         val bytes=try {
             input.use { stream ->

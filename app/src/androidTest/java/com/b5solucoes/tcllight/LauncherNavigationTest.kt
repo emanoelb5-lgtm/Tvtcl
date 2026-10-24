@@ -103,6 +103,7 @@ class LauncherNavigationTest {
             instrumentation.targetContext.getSharedPreferences("launcher", 0).edit()
                 .putInt("icon_scale", size).commit()
             seedOrderCatalog(ids)
+            await { onUi { find("grid:"+ids.first())?.let { it.isLaidOut && it.height>0 } == true } }
             onUi { find("grid:" + ids.first())!!.requestFocus() }
             repeat(18) { key(KeyEvent.KEYCODE_DPAD_DOWN) }
             SystemClock.sleep(350L)
@@ -124,7 +125,7 @@ class LauncherNavigationTest {
                         assertTrue("Um cartão invadiu o rodapé", rect.bottom <= location[1] + viewport.height - viewport.paddingBottom)
                     }
                 }
-                assertTrue(visible > 0)
+                assertTrue("Nenhum cartão visível: size=$size focus=${screen.currentFocus?.tag} scroll=${viewport.scrollY} child=${viewport.getChildAt(0).height} viewport=${viewport.height}",visible > 0)
                 assertTrue(screen.currentFocus?.tag.toString().startsWith("grid:"))
                 val selected = screen.currentFocus!!
                 val selectedRect = android.graphics.Rect()

@@ -561,10 +561,12 @@ class MainActivity : Activity() {
         val initial = firstData
         firstData = false
         if(changed && panel == null) {
+            val previousFocus=currentFocus
             val target = if(initial && !userNavigated) firstHomeView()
                 else homeViews[keep] ?: firstHomeView()
             homeLayer.post {
-                if(!isDestroyed && panel == null && target?.isAttachedToWindow == true) target.requestFocus()
+                if(!isDestroyed && panel == null && target?.isAttachedToWindow == true &&
+                    (currentFocus == null || currentFocus === previousFocus || currentFocus?.isAttachedToWindow == false)) target.requestFocus()
             }
         }
     }
