@@ -14,6 +14,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.net.LinkProperties
 import android.net.Uri
 import android.os.*
 import android.provider.Settings
@@ -26,6 +27,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
+import java.io.File
 
 /** Native TV Home. Optional weather and catalog work never block remote-control dispatch. */
 class MainActivity : Activity() {
@@ -45,7 +47,7 @@ class MainActivity : Activity() {
     private val prefs by lazy { getSharedPreferences("launcher", MODE_PRIVATE) }
     private val lowMemory by lazy { (getSystemService(ACTIVITY_SERVICE) as ActivityManager).isLowRamDevice }
     private fun economy() = prefs.getBoolean("eco_mode", lowMemory)
-    private val ui by lazy { TvStyle(this, ::economy) }
+    private val ui by lazy { TvStyle(this, ::economy, { prefs.getInt("text_scale",100) / 100f }, { safeHorizontal() to safeVertical() }) }
     private val artwork by lazy { AppArtwork(applicationContext) }
     private val scanner = Executors.newSingleThreadExecutor { r -> Thread({ android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND); r.run() },"tv-app-catalog") }
     private lateinit var frame: FrameLayout
@@ -65,6 +67,17 @@ class MainActivity : Activity() {
     private lateinit var timeLabel: TextView
     private lateinit var dateLabel: TextView
     private lateinit var centralButton: View
+    private lateinit var shortcutArea: LinearLayout
+    private lateinit var shortcutStrip: LinearLayout
+    private val shortcutViews = ArrayList<View>()
+    private var shortcutSignature = ""
+    private var networkStatus = NetworkStatus("Offline", "Sem conexão de rede")
+    private var reopenPanel = ""
+    private var reopenFocus = ""
+    private var backupMessage = "Guarde a organização e a aparência para restaurar depois."
+    private var importedBackup: BackupData? = null
+    private var backupBusy = false
+    private var backgroundTv: BackgroundTv? = null
     private var wallpapers: WallpaperDeck? = null
     private var panel: LauncherPanel? = null
     private var panelBack: (() -> Unit)? = null
@@ -141,10 +154,16 @@ class MainActivity : Activity() {
         override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
             handler.post { if(foreground) refreshStatus() }
         }
+        override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) {
+            handler.post { if(foreground) refreshStatus() }
+        }
     }
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
         waitingInstallPermission = state?.getBoolean("update_permission_pending") == true
+        reopenPanel = state?.getString("feature_panel", "") ?: ""
+        reopenFocus = state?.getString("feature_focus", "") ?: ""
+        backupMessage = state?.getString("backup_message") ?: backupMessage
         window.statusBarColor = ui.base
         window.navigationBarColor = ui.base
         @Suppress("DEPRECATION")
@@ -152,6 +171,13 @@ class MainActivity : Activity() {
             View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
             View.SYSTEM_UI_FLAG_LAYOUT_STABLE
         buildInterface()
+        handler.post {
+            when (reopenPanel) {
+                "display" -> showDisplaySettings(reopenFocus)
+                "backup" -> showBackup()
+            }
+            reopenPanel = ""; reopenFocus = ""
+        }
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_PACKAGE_ADDED); addAction(Intent.ACTION_PACKAGE_REMOVED)
             addAction(Intent.ACTION_PACKAGE_CHANGED); addAction(Intent.ACTION_PACKAGE_REPLACED)
@@ -176,11 +202,13 @@ class MainActivity : Activity() {
         if(appsDirty) refresh()
         if(usageDirty) { usageDirty = false; renderApps() }
         requestArtworkUpdate()
+        refreshBackgroundTv()
     }
 
     override fun onStop() {
         finishMoving(true)
         foreground = false
+        backgroundTv?.stop()
         handler.removeCallbacks(clockUpdate)
         wallpapers?.onBackground()
         val cm = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -194,6 +222,9 @@ class MainActivity : Activity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean("update_permission_pending", waitingInstallPermission)
+        outState.putString("feature_panel", reopenPanel)
+        outState.putString("feature_focus", reopenFocus)
+        outState.putString("backup_message", backupMessage)
         super.onSaveInstanceState(outState)
     }
 
@@ -204,12 +235,15 @@ class MainActivity : Activity() {
         artwork.close()
         wallpapers?.close()
         weather.close()
+        backgroundTv?.stop()
         super.onDestroy()
     }
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
         if(level >= TRIM_MEMORY_RUNNING_LOW) artwork.trim()
+        if(level >= TRIM_MEMORY_RUNNING_LOW && backgroundTv?.state == BackgroundTvState.PLAYING)
+            backgroundTv?.fail("A TV ao fundo foi encerrada para liberar memória.")
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -218,7 +252,7 @@ class MainActivity : Activity() {
         finishMoving(true)
         closePanel()
         listScroll.smoothScrollTo(0,0)
-        (topViews.firstOrNull() ?: centralButton).requestFocus()
+        firstHomeView().requestFocus()
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
@@ -256,11 +290,14 @@ class MainActivity : Activity() {
         else if(panel != null) { val back = panelBack; if(back != null) back() else closePanel() }
         else {
             listScroll.smoothScrollTo(0,0)
-            (topViews.firstOrNull() ?: centralButton).requestFocus()
+            firstHomeView().requestFocus()
         }
     }
 
     private fun dp(value: Int) = ui.dp(value)
+    private fun safeHorizontal() = prefs.getInt("safe_horizontal",42).coerceIn(24,72)
+    private fun safeVertical() = prefs.getInt("safe_vertical",8).coerceIn(0,24)
+    private fun firstHomeView(): View = topViews.firstOrNull() ?: shortcutViews.firstOrNull() ?: gridViews.firstOrNull() ?: centralButton
     private fun lp(w: Int,h: Int,l: Int=0,t: Int=0,r: Int=0,b: Int=0) =
         LinearLayout.LayoutParams(w,h).apply { setMargins(dp(l),dp(t),dp(r),dp(b)) }
 
@@ -270,6 +307,7 @@ class MainActivity : Activity() {
         frame.addView(wallpapers,FrameLayout.LayoutParams(-1,-1))
         homeLayer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; clipChildren = true; clipToPadding = true
+            setPadding(0,dp(safeVertical()),0,dp(safeVertical()))
         }
         frame.addView(homeLayer,FrameLayout.LayoutParams(-1,-1))
         setContentView(frame)
@@ -277,12 +315,12 @@ class MainActivity : Activity() {
         val nav = LinearLayout(this).apply {
             tag = "home:header"
             gravity = Gravity.CENTER_VERTICAL; clipChildren = false; clipToPadding = false
-            setPadding(dp(42), dp(10), dp(42), dp(10))
+            setPadding(dp(safeHorizontal()), dp(10), dp(safeHorizontal()), dp(10))
             elevation = dp(4).toFloat()
             background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
                 intArrayOf(Color.rgb(8, 17, 27), Color.argb(240, 8, 17, 27)))
         }
-        homeLayer.addView(nav,lp(-1,dp(76)))
+        homeLayer.addView(nav,lp(-1,ui.height(76)))
         val climate = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
         weatherIcon = ImageView(this).apply { setImageDrawable(TvIcon(TvIcon.Kind.CLOUD, ui.accent)) }
         climate.addView(weatherIcon,lp(dp(30),dp(30),0,0,12))
@@ -297,13 +335,13 @@ class MainActivity : Activity() {
         nav.addView(View(this).apply { setBackgroundColor(Color.argb(55,190,215,227)) },lp(dp(1),dp(30),14,0,20))
         val clock = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
         timeLabel = ui.text("--:--",26f,medium=true).apply { tag = "header:time"; maxLines = 1 }
-        dateLabel = ui.text("",11.5f,ui.muted).apply { tag = "header:date"; maxLines = 1 }
+        dateLabel = ui.text("",11.5f,ui.muted).apply { tag = "header:date"; maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
         clock.addView(timeLabel)
         clock.addView(dateLabel,lp(-2,-2,12))
         nav.addView(clock,LinearLayout.LayoutParams(0,-2,1f))
         networkLabel = ui.text("Rede",11f)
         networkIcon = ImageView(this)
-        val net = navControl("nav:wifi",TvIcon.Kind.WIFI,"Conexão de rede",networkLabel,networkIcon) { openWifiSettings() }
+        val net = navControl("nav:wifi",TvIcon.Kind.WIFI,"Conexão de rede",networkLabel,networkIcon) { showNetwork() }
         nav.addView(net,lp(dp(80),dp(39),8,0,8)); navViews.add(net)
         deviceLabel = ui.text("Entradas",11f)
         val devices = navControl("nav:inputs",TvIcon.Kind.CABLE,"Entradas de vídeo",deviceLabel) { showInputs() }
@@ -321,15 +359,26 @@ class MainActivity : Activity() {
         homeLayer.addView(listScroll,LinearLayout.LayoutParams(-1,0,1f))
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; clipChildren = false; clipToPadding = false
-            setPadding(dp(42),dp(6),dp(42),dp(14))
+            setPadding(dp(safeHorizontal()),dp(6),dp(safeHorizontal()),dp(14))
         }
         listScroll.addView(column)
         listScroll.viewTreeObserver.addOnScrollChangedListener { requestArtworkUpdate() }
-        val sceneSpace = ((resources.configuration.screenHeightDp-440)*.38f).toInt().coerceIn(32,110)
+        val sceneSpace = ((resources.configuration.screenHeightDp-480)*.25f).toInt().coerceIn(12,60)
         column.addView(View(this),lp(-1,dp(sceneSpace)))
+        shortcutArea = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        shortcutArea.addView(section("TV e entradas", "Segure OK para organizar"), lp(-1,ui.height(27),0,0,3,6))
+        val sourcesScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER
+            clipChildren = false; clipToPadding = false
+        }
+        shortcutStrip = LinearLayout(this).apply { setPadding(dp(4),dp(4),dp(4),dp(4)); clipChildren = false }
+        sourcesScroll.addView(shortcutStrip)
+        shortcutArea.addView(sourcesScroll,lp(-1,-2))
+        column.addView(shortcutArea,lp(-1,-2,0,0,0,14))
+        renderShortcuts()
         val usedHeader = section("Mais utilizados","Pelo seu uso")
         orderLabel = (usedHeader as LinearLayout).getChildAt(1) as TextView
-        column.addView(usedHeader,lp(-1,dp(28),0,0,3,6))
+        column.addView(usedHeader,lp(-1,ui.height(28),0,0,3,6))
         favoriteStrip = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER
             clipChildren = false; clipToPadding = false
@@ -342,7 +391,7 @@ class MainActivity : Activity() {
         column.addView(favoriteStrip,lp(-1,-2,0,0,0,16))
         val appHeader = section("Seus aplicativos","")
         appCount = (appHeader as LinearLayout).getChildAt(1) as TextView
-        column.addView(appHeader,lp(-1,dp(27),0,0,3,6))
+        column.addView(appHeader,lp(-1,ui.height(27),0,0,3,6))
         appGrid = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; clipChildren = false; clipToPadding = false
             setPadding(dp(4),dp(4),dp(4),dp(5))
@@ -350,11 +399,11 @@ class MainActivity : Activity() {
         column.addView(appGrid,lp(-1,-2))
         favorites.addView(ui.text("Carregando aplicativos…",12f,ui.muted),lp(-1,dp(110)))
         val footer = LinearLayout(this).apply { tag = "home:footer"; gravity = Gravity.CENTER_VERTICAL }
-        controlHint = ui.text("OK  Abrir    ·    Segure OK  Mover e opções",9.5f,ui.quiet).apply { tag = "home:hint" }
+        controlHint = ui.text("OK  Abrir    ·    Segure OK  Mover e opções",9.5f,ui.quiet).apply { tag = "home:hint"; maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
         footer.addView(controlHint,
             LinearLayout.LayoutParams(0,-2,1f))
         footer.addView(ui.text("MENU  Central de ações",9.5f,ui.muted))
-        homeLayer.addView(footer,lp(-1,dp(27),46,0,46,5))
+        homeLayer.addView(footer,lp(-1,ui.height(27),safeHorizontal()+4,0,safeHorizontal()+4,5))
         centralButton.requestFocus()
     }
 
@@ -381,7 +430,7 @@ class MainActivity : Activity() {
         ui.focus(view,key,14,transparent) { focused ->
             if (focused) {
                 lastHomeFocus = key
-                if (key.startsWith("grid:") || key.startsWith("top:")) view.post {
+                if (key.startsWith("grid:") || key.startsWith("top:") || key.startsWith("shortcut:")) view.post {
                     if (view.hasFocus() && panel == null) {
                         // Include the focus outline in the native scroll request.
                         view.requestRectangleOnScreen(Rect(0, -dp(5), view.width, view.height + dp(5)), economy())
@@ -461,7 +510,7 @@ class MainActivity : Activity() {
             gridSignature = nextGrid
             gridViews.forEach { homeViews.remove(it.tag.toString()) }; gridViews.clear()
             appGrid.removeAllViews()
-            val tileWidth = (resources.configuration.screenWidthDp-92-(columns-1)*12)/columns
+            val tileWidth = (resources.configuration.screenWidthDp-safeHorizontal()*2-8-(columns-1)*12)/columns
             for(group in visible.chunked(columns)) {
                 val row = LinearLayout(this).apply { clipChildren = false; clipToPadding = false }
                 for((index,app) in group.withIndex()) {
@@ -490,8 +539,8 @@ class MainActivity : Activity() {
         val initial = firstData
         firstData = false
         if(changed && panel == null) {
-            val target = if(initial && !userNavigated) topViews.firstOrNull()
-                else homeViews[keep] ?: topViews.firstOrNull()
+            val target = if(initial && !userNavigated) firstHomeView()
+                else homeViews[keep] ?: firstHomeView()
             homeLayer.post {
                 if(!isDestroyed && panel == null && target?.isAttachedToWindow == true) target.requestFocus()
             }
@@ -536,14 +585,20 @@ class MainActivity : Activity() {
     }
 
     private fun wireNavigation(columns: Int) {
-        val first = topViews.firstOrNull() ?: gridViews.firstOrNull() ?: centralButton
+        val first = shortcutViews.firstOrNull() ?: topViews.firstOrNull() ?: gridViews.firstOrNull() ?: centralButton
         navViews.forEachIndexed { i,v ->
             v.nextFocusLeftId = navViews[(i-1).coerceAtLeast(0)].id
             v.nextFocusRightId = navViews[(i+1).coerceAtMost(navViews.lastIndex)].id
             v.nextFocusDownId = first.id
         }
-        topViews.forEachIndexed { i,v ->
+        shortcutViews.forEachIndexed { i,v ->
+            v.nextFocusLeftId = shortcutViews[(i-1).coerceAtLeast(0)].id
+            v.nextFocusRightId = shortcutViews[(i+1).coerceAtMost(shortcutViews.lastIndex)].id
             v.nextFocusUpId = centralButton.id
+            v.nextFocusDownId = topViews.getOrNull(i.coerceAtMost(topViews.lastIndex))?.id ?: gridViews.firstOrNull()?.id ?: v.id
+        }
+        topViews.forEachIndexed { i,v ->
+            v.nextFocusUpId = shortcutViews.getOrNull(i.coerceAtMost(shortcutViews.lastIndex))?.id ?: centralButton.id
             v.nextFocusLeftId = topViews[(i-1).coerceAtLeast(0)].id
             v.nextFocusRightId = topViews[(i+1).coerceAtMost(topViews.lastIndex)].id
             v.nextFocusDownId = gridViews.getOrNull(i.coerceAtMost(gridViews.lastIndex))?.id ?: v.id
@@ -552,7 +607,7 @@ class MainActivity : Activity() {
             v.nextFocusLeftId = if(i % columns > 0) gridViews[i-1].id else v.id
             v.nextFocusRightId = if(i % columns < columns-1) gridViews.getOrNull(i+1)?.id ?: v.id else v.id
             v.nextFocusUpId = if(i >= columns) gridViews[i-columns].id
-                else topViews.getOrNull(i.coerceAtMost(topViews.lastIndex))?.id ?: centralButton.id
+                else topViews.getOrNull(i.coerceAtMost(topViews.lastIndex))?.id ?: shortcutViews.firstOrNull()?.id ?: centralButton.id
             v.nextFocusDownId = gridViews.getOrNull(i+columns)?.id ?: v.id
         }
     }
@@ -604,6 +659,11 @@ class MainActivity : Activity() {
         })
         networkIcon.setImageDrawable(TvIcon(if(network == ConnectivityManager.TYPE_ETHERNET)
             TvIcon.Kind.CABLE else TvIcon.Kind.WIFI,if(network == -1) ui.quiet else ui.accent))
+        val next = NetworkStatus.read(getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager)
+        if (next != networkStatus) {
+            networkStatus = next
+            if (activePanel == "network") showNetwork(currentFocus?.tag as? String)
+        }
     }
 
     private fun wifiState() = when(networkType()) {
@@ -623,6 +683,8 @@ class MainActivity : Activity() {
                 inputsLoading = false
                 if (isDestroyed) return@post
                 videoInputs = entries
+                renderShortcuts()
+                refreshBackgroundTv()
                 if (foreground && activePanel == "inputs") {
                     val focus = currentFocus?.tag as? String
                     showInputs(focus)
@@ -655,13 +717,13 @@ class MainActivity : Activity() {
         updateStatus = null; updateProgressBar = null
         homeLayer.descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
         homeLayer.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
-        (homeViews[returnFocus] ?: topViews.firstOrNull() ?: centralButton).requestFocus()
+        (homeViews[returnFocus] ?: firstHomeView()).requestFocus()
     }
 
     private fun showActionCenter(focus: String? = null) {
         val sheet = newPanel("Central de ações","Conexões e atalhos da sua TV")
         sheet.grid(listOf(
-            PanelAction("action:wifi","Rede",wifiState(),TvIcon.Kind.WIFI,networkType() != -1) { openWifiSettings() },
+            PanelAction("action:wifi","Rede",wifiState(),TvIcon.Kind.WIFI,networkType() != -1) { showNetwork() },
             PanelAction("action:inputs","Entradas","HDMI, antena e vídeo",TvIcon.Kind.CABLE) { showInputs() },
             PanelAction("action:tv","TV e canais","Abrir televisão",TvIcon.Kind.TV) { openTv() },
             PanelAction("action:eco","Modo leve",if(economy()) "Ativado" else "Desativado",TvIcon.Kind.LEAF,economy()) {
@@ -676,6 +738,8 @@ class MainActivity : Activity() {
         } catch(_: Exception) {}
         sheet.row(PanelAction("action:update", "Atualizar TCL Light", "Versão ${BuildConfig.VERSION_NAME} · Verificar atualizações", TvIcon.Kind.REFRESH) { showUpdates() })
         sheet.caption("Mais controles")
+        sheet.row(PanelAction("action:shortcuts", "Atalhos de TV e entradas", "Fixar e organizar na tela inicial", TvIcon.Kind.PIN) { showShortcutPicker() })
+        sheet.row(PanelAction("action:backup", "Backup local", "Salvar e restaurar sua configuração", TvIcon.Kind.STORAGE) { showBackup() })
         if (mediaApps.any { it.packageName == "com.android.vending" })
             sheet.row(PanelAction("action:store", "Google Play Store", "Instalar e atualizar seus aplicativos", TvIcon.Kind.GRID) { openPlayStore() })
         sheet.row(PanelAction("action:customize","Personalizar aparência","Fundos, cartões e mais utilizados",TvIcon.Kind.PALETTE) { showPreferences() })
@@ -754,6 +818,20 @@ class MainActivity : Activity() {
     @Deprecated("Legacy TV installer result")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 901 || requestCode == 902) {
+            val uri = data?.data
+            if (resultCode == RESULT_OK && uri?.scheme == "content") {
+                if (requestCode == 901) backupWork({
+                    val bytes = LauncherBackup.export(prefs, lowMemory)
+                    (contentResolver.openOutputStream(uri, "w") ?: throw java.io.IOException()).use { it.write(bytes) }
+                }) { backupMessage = "Backup exportado."; if (foreground) showBackup() }
+                else backupWork({ (contentResolver.openInputStream(uri) ?: throw java.io.IOException()).use { LauncherBackup.read(it) } }) {
+                    importedBackup = it
+                    if (foreground) showBackupPreview(it)
+                }
+            }
+            return
+        }
         if (requestCode == 801 && waitingInstallPermission) {
             waitingInstallPermission = false
             showUpdates()
@@ -792,12 +870,15 @@ class MainActivity : Activity() {
             if (entry.passthrough) TvIcon.Kind.CABLE else TvIcon.Kind.TV,
             entry.state == android.media.tv.TvInputManager.INPUT_STATE_CONNECTED) { openInput(entry) })
         sheet.row(PanelAction("inputs:native", "Seletor de entradas da TV", "Abrir menu nativo", TvIcon.Kind.TV) { openInputSelector() })
+        sheet.row(PanelAction("inputs:shortcuts", "Atalhos na tela inicial", "Fixar TV e entradas", TvIcon.Kind.PIN) { showShortcutPicker() })
         sheet.focusAction(focus)
     }
 
     private fun showPreferences(focus: String? = null) {
         val sheet = newPanel("Personalizar","A aparência da sua tela inicial") { showActionCenter("action:customize") }
         val mode = prefs.getInt("wallpaper_mode",-1)
+        sheet.row(PanelAction("pref:display", "Área visível e textos", "Margens da tela e tamanho das letras", TvIcon.Kind.SIZE) { showDisplaySettings() })
+        sheet.row(PanelAction("pref:tv-background", "TV ao fundo · Experimental", "Teste opcional com entradas de vídeo", TvIcon.Kind.TV) { showBackgroundSettings() })
         sheet.row(PanelAction("pref:wallpaper","Papel de parede",when(mode) {
             -1 -> "Cinco paisagens em rotação"; 5 -> "Grafite"; else -> "Paisagem " + (mode+1)
         },TvIcon.Kind.IMAGE) {
@@ -851,6 +932,264 @@ class MainActivity : Activity() {
             view.animate().cancel(); view.scaleX = 1f; view.scaleY = 1f
         }
         wallpapers?.reload()
+        refreshBackgroundTv()
+    }
+
+    private fun showNetwork(focus: String? = null) {
+        networkStatus = NetworkStatus.read(getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager)
+        val status = networkStatus
+        val sheet = newPanel("Conexão de rede", "Estado informado pelo Android") { showActionCenter("action:wifi") }
+        activePanel = "network"
+        sheet.caption(status.connection)
+        sheet.paragraph(status.internet).tag = "network:status"
+        sheet.paragraph("IP da TV: ${status.address}").tag = "network:address"
+        if (status.connected && status.ipv4.isEmpty() && status.ipv6.isEmpty())
+            sheet.paragraph("A rede ainda não informou um endereço para a TV.")
+        if (status.ipv4.isNotEmpty() || status.ipv6.isNotEmpty()) sheet.row(PanelAction("network:copy", "Copiar IP da TV", status.address, TvIcon.Kind.INFO) {
+            (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("IP da TV", status.address))
+            Toast.makeText(this,"IP copiado.",Toast.LENGTH_SHORT).show()
+        })
+        sheet.row(PanelAction("network:settings", "Configurar rede", "Abrir ajustes de Wi-Fi e conexão", TvIcon.Kind.WIFI) { openWifiSettings() })
+        sheet.row(PanelAction("network:refresh", "Atualizar informações", "Consultar o estado atual", TvIcon.Kind.REFRESH) { showNetwork("network:refresh") })
+        sheet.focusAction(focus)
+    }
+
+    private fun shortcuts() = HomeShortcuts.decode(prefs.getString(HomeShortcuts.PREF,null))
+
+    private fun saveShortcuts(items: List<HomeShortcut>) {
+        if(items.size > HomeShortcuts.MAX) { Toast.makeText(this,"O limite é de ${HomeShortcuts.MAX} atalhos.",Toast.LENGTH_SHORT).show();return }
+        prefs.edit().putString(HomeShortcuts.PREF, HomeShortcuts.encode(items)).apply()
+        renderShortcuts()
+        wireNavigation(when(prefs.getInt("icon_scale",1)) { 0 -> 6; 2 -> 4; else -> 5 })
+    }
+
+    private fun renderShortcuts() {
+        if (!::shortcutArea.isInitialized) return
+        val entries = shortcuts().filter { it.key == "tv" || it.source(videoInputs) != null }
+        val signature = entries.joinToString { it.key + it.label(videoInputs) } + "|" + ui.textScale
+        if (signature == shortcutSignature) return
+        shortcutSignature = signature
+        val focused = currentFocus?.tag as? String
+        shortcutViews.forEach { homeViews.remove(it.tag.toString()) }; shortcutViews.clear()
+        shortcutStrip.removeAllViews()
+        shortcutArea.visibility = if (entries.isEmpty()) View.GONE else View.VISIBLE
+        for (entry in entries) {
+            val card = LinearLayout(this).apply {
+                gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12),dp(8),dp(12),dp(8))
+                contentDescription = entry.label(videoInputs) + ". Segure OK para organizar."
+                addView(ImageView(context).apply { setImageDrawable(TvIcon(if(entry.key == "tv") TvIcon.Kind.TV else TvIcon.Kind.CABLE, ui.accent)) },lp(dp(22),dp(22),0,0,10))
+                addView(ui.text(entry.label(videoInputs),12f,medium=true).apply { maxLines=1; ellipsize=TextUtils.TruncateAt.END },lp(0,-2).apply { weight=1f })
+            }
+            styleHome(card,"shortcut:" + entry.key)
+            card.setOnClickListener { openShortcut(entry) }
+            card.setOnLongClickListener { card.requestFocus(); showShortcutOptions(entry); true }
+            shortcutViews.add(card); shortcutStrip.addView(card,lp(dp(166),ui.height(49),0,0,10))
+        }
+        wireNavigation(when(prefs.getInt("icon_scale",1)) { 0 -> 6; 2 -> 4; else -> 5 })
+        if (panel == null && focused?.startsWith("shortcut:") == true)
+            (homeViews[focused] ?: firstHomeView()).requestFocus()
+    }
+
+    private fun openShortcut(entry: HomeShortcut) {
+        if (entry.key == "tv") openTv()
+        else entry.source(videoInputs)?.let(::openInput) ?: showInputs()
+    }
+
+    private fun showShortcutPicker(focus: String? = null) {
+        val sheet = newPanel("Atalhos de TV", "Escolha o que aparece na tela inicial") { showActionCenter("action:shortcuts") }
+        val selected = shortcuts()
+        val choices = listOf(HomeShortcut("tv")) + videoInputs.map { HomeShortcut("input:" + it.id) } +
+            selected.filter { it.key != "tv" && it.source(videoInputs) == null }
+        for (item in choices.distinctBy { it.key }) {
+            val pinned = selected.firstOrNull { it.key == item.key }
+            val entry = pinned ?: item
+            sheet.row(PanelAction("shortcut-option:" + item.key, entry.label(videoInputs),
+                if(pinned != null) "Fixado · Abrir opções" else "Fixar na tela inicial",TvIcon.Kind.PIN,pinned != null) {
+                if (pinned == null) { saveShortcuts(selected + entry); showShortcutPicker("shortcut-option:" + entry.key) }
+                else showShortcutOptions(entry, true)
+            })
+        }
+        if (videoInputs.isEmpty()) sheet.paragraph("A TV ainda não disponibilizou entradas. O atalho de TV continua disponível.")
+        sheet.focusAction(focus)
+    }
+
+    private fun showShortcutOptions(entry: HomeShortcut, fromPicker: Boolean = false) {
+        val sheet = newPanel(entry.label(videoInputs),"Organizar atalho") {
+            if(fromPicker) showShortcutPicker("shortcut-option:" + entry.key) else closePanel()
+        }
+        sheet.row(PanelAction("shortcut:open", "Abrir", "Ir para a TV ou entrada", TvIcon.Kind.TV) { openShortcut(entry) })
+        sheet.row(PanelAction("shortcut:rename", "Renomear", "Escolher um nome para este atalho", TvIcon.Kind.PALETTE) {
+            val edit = EditText(this).apply {
+                setSingleLine(true); setText(entry.label(videoInputs)); selectAll()
+                filters = arrayOf(android.text.InputFilter.LengthFilter(32))
+                inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            }
+            val dialog=android.app.AlertDialog.Builder(this).setTitle("Nome do atalho").setView(edit)
+                .setNegativeButton("Cancelar", null).setPositiveButton("Salvar") { _, _ ->
+                    val name = edit.text.toString().filterNot { it.isISOControl() }.trim().take(32)
+                    val updated = entry.copy(name=name)
+                    saveShortcuts(shortcuts().map { if(it.key == entry.key) updated else it })
+                    showShortcutOptions(updated,fromPicker)
+                }.show()
+            dialog.window?.setLayout(dp(minOf(600,resources.configuration.screenWidthDp-safeHorizontal()*2)),ViewGroup.LayoutParams.WRAP_CONTENT)
+        })
+        val entries = shortcuts(); val index = entries.indexOfFirst { it.key == entry.key }
+        for ((delta,title) in listOf(-1 to "Mover à esquerda", 1 to "Mover à direita")) {
+            if (index + delta in entries.indices) sheet.row(PanelAction("shortcut:move:$delta",title,"Alterar a posição na tela inicial",if(delta<0) TvIcon.Kind.LEFT else TvIcon.Kind.RIGHT) {
+                val reordered=shortcuts().toMutableList(); val current=reordered.indexOfFirst { it.key == entry.key }
+                if(current>=0 && current+delta in reordered.indices) java.util.Collections.swap(reordered,current,current+delta)
+                saveShortcuts(reordered); showShortcutOptions(entry,fromPicker)
+            })
+        }
+        sheet.row(PanelAction("shortcut:remove", "Remover da tela inicial", "A entrada continua disponível na Central", TvIcon.Kind.CLOSE) {
+            saveShortcuts(shortcuts().filterNot { it.key == entry.key })
+            if(fromPicker) showShortcutPicker() else closePanel()
+        })
+        sheet.focusAction()
+    }
+
+    private fun showDisplaySettings(focus: String? = null) {
+        val sheet = newPanel("Área visível e textos", "Ajuste a tela para sua TV") { showPreferences("pref:display") }
+        sheet.paragraph("Aumente as margens se algum controle ficar cortado nas bordas. O papel de parede continua preenchendo a tela.")
+        val choices = listOf(
+            Triple("safe_horizontal","Margens laterais",listOf(24,42,56,72)),
+            Triple("safe_vertical","Margens superior e inferior",listOf(0,8,16,24)),
+            Triple("text_scale","Tamanho dos textos",listOf(100,110,120)))
+        for ((key,title,values) in choices) {
+            val current=prefs.getInt(key,when(key){"safe_horizontal"->42;"safe_vertical"->8;else->100})
+            sheet.row(PanelAction("display:"+key,title,if(key=="text_scale") "$current%" else when(current){values.first()->"Reduzidas";values.last()->"Amplas";else->"Intermediárias"},TvIcon.Kind.SIZE) {
+                val options=newPanel(title,"Confirme com OK") { showDisplaySettings("display:"+key) }
+                values.forEachIndexed { index,value ->
+                    val label=if(key=="text_scale") "$value%" else listOf("Reduzidas","Padrão","Amplas","Máximas")[index]
+                    options.row(PanelAction("display-choice:$value",label,if(value==current) "Selecionado" else "",TvIcon.Kind.SIZE,value==current) {
+                        prefs.edit().putInt(key,value).apply(); recreateFeature("display","display:"+key)
+                    })
+                }
+                options.focusAction("display-choice:$current")
+            })
+        }
+        sheet.row(PanelAction("display:reset","Restaurar tamanho padrão","Margens e textos originais",TvIcon.Kind.REFRESH) {
+            prefs.edit().remove("safe_horizontal").remove("safe_vertical").remove("text_scale").apply()
+            recreateFeature("display","display:reset")
+        })
+        sheet.focusAction(focus)
+    }
+
+    private fun recreateFeature(destination: String, focus: String = "") {
+        reopenPanel=destination; reopenFocus=focus; recreate()
+    }
+
+    private fun localBackup() = android.util.AtomicFile(File(filesDir,"launcher-backup.json"))
+
+    private fun <T> backupWork(work: () -> T, done: (T) -> Unit) {
+        if(backupBusy) return
+        backupBusy=true
+        scanner.execute {
+            val result=runCatching(work)
+            handler.post {
+                backupBusy=false
+                if(isDestroyed || isFinishing) return@post
+                result.fold(done) { error ->
+                    backupMessage=if(error is BackupFailure) error.message ?: "Backup inválido." else "Não foi possível concluir o backup. Verifique o arquivo e o espaço disponível."
+                    if(foreground) showBackup()
+                }
+            }
+        }
+    }
+
+    private fun showBackup() {
+        val sheet=newPanel("Backup local","Organização e aparência do seu launcher") { showActionCenter("action:backup") }
+        activePanel="backup"
+        sheet.paragraph(backupMessage).tag="backup:status"
+        importedBackup?.let { data -> sheet.row(PanelAction("backup:review","Revisar backup selecionado",data.summary,TvIcon.Kind.INFO) { showBackupPreview(data) }) }
+        sheet.row(PanelAction("backup:save","Salvar cópia nesta TV","Guardar a configuração atual",TvIcon.Kind.STORAGE) {
+            backupWork({
+                val bytes=LauncherBackup.export(prefs,lowMemory); val file=localBackup(); val output=file.startWrite()
+                try { output.write(bytes); file.finishWrite(output) } catch(error:Exception) { file.failWrite(output); throw error }
+            }) { backupMessage="Cópia salva nesta TV."; if(foreground) showBackup() }
+        })
+        if(localBackup().baseFile.isFile) sheet.row(PanelAction("backup:local","Restaurar cópia desta TV","Revisar antes de substituir os ajustes",TvIcon.Kind.REFRESH) {
+            backupWork({ localBackup().openRead().use { LauncherBackup.read(it) } }) {
+                importedBackup=it; if(foreground) showBackupPreview(it)
+            }
+        })
+        sheet.row(PanelAction("backup:export","Exportar arquivo","Guardar em outro local ou dispositivo",TvIcon.Kind.RIGHT) {
+            val intent=Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("application/json").putExtra(Intent.EXTRA_TITLE,"TCL-Light-Backup.json")
+            try { startActivityForResult(intent,901) } catch(_:ActivityNotFoundException) { shareBackup() }
+        })
+        sheet.row(PanelAction("backup:import","Importar arquivo","Escolher um backup do TCL Light",TvIcon.Kind.LEFT) {
+            val intent=Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+            try { startActivityForResult(intent,902) }
+            catch(_:ActivityNotFoundException) {
+                try { startActivityForResult(Intent(Intent.ACTION_GET_CONTENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"),902) }
+                catch(_:ActivityNotFoundException) { backupMessage="Esta TV não oferece um seletor de arquivos. A cópia nesta TV continua disponível."; showBackup() }
+            }
+        })
+        sheet.paragraph("Exporte um arquivo para guardar o backup fora do aplicativo. A restauração é revisada antes de substituir suas preferências.")
+        sheet.focusAction()
+    }
+
+    private fun shareBackup() = backupWork({
+        val file=UpdateApkProvider.backup(this); file.parentFile!!.mkdirs()
+        file.writeBytes(LauncherBackup.export(prefs,lowMemory))
+    }) {
+        val uri=UpdateApkProvider.backupUri(this)
+        val intent=Intent(Intent.ACTION_SEND).setType("application/json").putExtra(Intent.EXTRA_STREAM,uri).apply {
+            clipData=ClipData.newRawUri("Backup TCL Light",uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        try { startActivity(Intent.createChooser(intent,"Exportar backup")) }
+        catch(_:ActivityNotFoundException) { backupMessage="Nenhum aplicativo disponível para receber o arquivo. Use a cópia nesta TV."; showBackup() }
+    }
+
+    private fun showBackupPreview(data: BackupData) {
+        val sheet=newPanel("Restaurar backup","Confira antes de aplicar") { importedBackup=null;showBackup() }
+        activePanel="backup-preview"
+        sheet.paragraph(data.summary)
+        sheet.paragraph("A organização e a aparência atuais serão substituídas. Os aplicativos instalados e a escolha de tela inicial são mantidos.")
+        sheet.row(PanelAction("backup:confirm","Restaurar configuração","Aplicar este backup",TvIcon.Kind.CHECK) {
+            backupWork({ LauncherBackup.restore(prefs,data) }) {
+                importedBackup=null; backupMessage="Backup restaurado."; recreateFeature("backup")
+            }
+        })
+        sheet.focusAction()
+    }
+
+    private fun showBackgroundSettings() {
+        val sheet=newPanel("TV ao fundo","Experimental · Entradas de vídeo") { showPreferences("pref:tv-background") }
+        activePanel="background"
+        sheet.paragraph(backgroundTv?.message ?: "Desativado").tag="background:status"
+        sheet.paragraph("Teste uma entrada conectada, como HDMI, sem áudio. A imagem é encerrada ao abrir outro aplicativo e o papel de parede volta se a TV não permitir a conexão.")
+        if(economy()) sheet.paragraph("O modo leve está ativo. Desative-o na Central para testar este recurso.")
+        else {
+            val eligible=videoInputs.filter { it.passthrough && it.state == android.media.tv.TvInputManager.INPUT_STATE_CONNECTED }
+            if(eligible.isEmpty()) sheet.paragraph("A TV não disponibilizou uma entrada de vídeo conectada para este teste.")
+            for(source in eligible) sheet.row(PanelAction("background:"+source.id,source.label,"Testar ao fundo",TvIcon.Kind.TV) {
+                prefs.edit().putString("tv_background_input",source.id).apply(); refreshBackgroundTv()
+            })
+        }
+        sheet.row(PanelAction("background:off","Usar papel de parede","Encerrar o teste",TvIcon.Kind.IMAGE) {
+            prefs.edit().remove("tv_background_input").apply(); backgroundTv?.stop(); showBackgroundSettings()
+        })
+        sheet.focusAction()
+    }
+
+    private fun refreshBackgroundTv() {
+        if(!foreground || inputsLoading) return
+        val id=prefs.getString("tv_background_input",null)
+        if(id == null || economy()) { backgroundTv?.stop(); return }
+        val source=videoInputs.firstOrNull { it.id == id }
+        val current=backgroundTv
+        if(current?.inputId == id && current.state in listOf(BackgroundTvState.PLAYING,BackgroundTvState.STARTING) &&
+            source?.state == android.media.tv.TvInputManager.INPUT_STATE_CONNECTED) return
+        if(current == null) backgroundTv=BackgroundTv(frame,handler,{ visible ->
+            wallpapers?.visibility=if(visible) View.INVISIBLE else View.VISIBLE
+            if(visible) wallpapers?.onBackground() else if(foreground) wallpapers?.onForeground()
+        },{ state,_ ->
+            if(state == BackgroundTvState.UNAVAILABLE) prefs.edit().remove("tv_background_input").apply()
+            if(foreground && activePanel == "background") showBackgroundSettings()
+        })
+        backgroundTv?.start(source,economy())
     }
 
     private fun showHiddenApps(fromPreferences: Boolean = false) {

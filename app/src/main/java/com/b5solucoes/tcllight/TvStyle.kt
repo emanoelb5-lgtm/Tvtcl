@@ -9,7 +9,12 @@ import android.view.View
 import android.widget.TextView
 
 /** Native TV surfaces. Focus changes reuse drawables and only animate transforms. */
-internal class TvStyle(val context: Context, val economy: () -> Boolean) {
+internal class TvStyle(val context: Context, val economy: () -> Boolean, private val fontScale: () -> Float = { 1f },
+    private val insets: () -> Pair<Int,Int> = { 42 to 8 }) {
+    val horizontalInset: Int get() = insets().first.coerceIn(24,72)
+    val verticalInset: Int get() = insets().second.coerceIn(0,24)
+    val textScale: Float get() = fontScale().coerceIn(1f, 1.2f)
+    fun height(value: Int) = dp(kotlin.math.ceil(value * textScale).toInt())
     val ink = Color.rgb(244, 247, 250)
     val muted = Color.rgb(166, 179, 195)
     val quiet = Color.rgb(117, 137, 158)
@@ -20,7 +25,7 @@ internal class TvStyle(val context: Context, val economy: () -> Boolean) {
     fun text(value: String, size: Float, color: Int = ink, medium: Boolean = false) =
         TextView(context).apply {
             text = value
-            textSize = size
+            textSize = size * textScale
             setTextColor(color)
             includeFontPadding = false
             typeface = Typeface.create(if (medium) "sans-serif-medium" else "sans-serif", 0)

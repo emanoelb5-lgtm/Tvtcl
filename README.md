@@ -1,14 +1,14 @@
-# TCL Light 0.8.0
+# TCL Light 0.9.0
 
 Launcher nativo em Kotlin para Android TV, com foco em controle remoto e TVs com pouca memória.
 
-[Baixar TCL-Light-0.8.0.apk](https://github.com/emanoelb5-lgtm/Tvtcl/releases/download/v0.8.0/TCL-Light-0.8.0.apk) · [Versões](https://github.com/emanoelb5-lgtm/Tvtcl/releases)
+[Baixar TCL-Light-0.9.0.apk](https://github.com/emanoelb5-lgtm/Tvtcl/releases/download/v0.9.0/TCL-Light-0.9.0.apk) · [Versões](https://github.com/emanoelb5-lgtm/Tvtcl/releases)
 
 ## Instalação e atualizações
 
-Se você já usa a **0.7.0, instale a 0.8.0 por cima**, sem desinstalar. O pacote e a assinatura permanente são os mesmos; a organização, os ajustes e a escolha de tela inicial são mantidos. As betas anteriores à 0.7.0 usaram chaves de teste diferentes e exigem migração única.
+Se você já usa a **0.7.0 ou 0.8.0, instale a 0.9.0 por cima**, sem desinstalar. O pacote e a assinatura permanente são os mesmos; a organização, os ajustes e a escolha de tela inicial são mantidos. As betas anteriores à 0.7.0 usaram chaves de teste diferentes e exigem migração única.
 
-Na 0.8.0, abra **Central → Atualizar TCL Light → Verificar atualizações**. Quando houver uma versão nova, escolha Baixar e depois Instalar. O Android pode pedir que você permita instalações pelo TCL Light; a confirmação final continua sendo feita no instalador da TV. O download é manual, pelo GitHub, sem serviço permanente ou consultas periódicas.
+Na 0.8.0 ou posterior, abra **Central → Atualizar TCL Light → Verificar atualizações**. Quando houver uma versão nova, escolha Baixar e depois Instalar. O Android pode pedir que você permita instalações pelo TCL Light; a confirmação final continua sendo feita no instalador da TV. O download é manual, pelo GitHub, sem serviço permanente ou consultas periódicas.
 
 O atualizador só aceita o pacote do TCL Light, um código de versão maior e o certificado permanente. Confere tamanho, SHA-256, identidade e assinatura do APK em uma tarefa de fundo e confere novamente antes de abrir o instalador. O arquivo fica no cache privado e é compartilhado por uma URI temporária somente de leitura. Falhas e cancelamentos descartam o download parcial.
 
@@ -28,11 +28,19 @@ O certificado público fica em [signing/tcl-light-release.pem](signing/tcl-light
 - A Play Store aparece entre os aplicativos quando instalada e habilitada, inclusive como app de sistema, e tem atalho na Central.
 - A faixa superior fica fora da área de rolagem, com recorte dos cartões para que nunca a cubram. Ela reúne clima de Garrafão do Norte, hora, data, rede, entradas e Central. Não há botão de marca nem nomes repetidos sob os cartões.
 
+## Novidades da 0.9.0
+
+- **TV e entradas na Home:** a TV nativa começa fixada. Em Central → Atalhos de TV e entradas, fixe as entradas expostas pelo firmware; segure OK no atalho para renomear, mover ou remover. Entradas que deixam de ser disponibilizadas não ficam como botões sem destino.
+- **Rede:** abra o botão de rede para consultar conexão, validação de internet e IP da TV. O IP pode ser copiado. A leitura usa callbacks do Android e não dispara testes de velocidade ou varreduras periódicas. “Internet não confirmada” é diferente de afirmar que toda a internet está bloqueada.
+- **Área visível e textos:** Personalizar → Área visível e textos permite ajustar margens laterais, superior/inferior e letras de 100%, 110% ou 120%. O fundo preenche a tela; controles, cabeçalho e painéis respeitam a área segura e a rolagem mantém o cartão em foco inteiro.
+- **Backup local:** a Central oferece cópia nesta TV, exportação e importação JSON. Antes de restaurar, apresenta uma revisão e exige confirmação. Preserva organização, ocultos, fixados, contagens locais de uso e aparência. A importação tem limite de 256 KiB, tipos/valores limitados e uma lista explícita de preferências permitidas; não restaura destinos de atualização, permissões ou componentes do sistema. A cópia interna sobrevive às atualizações, mas exporte para guardar fora do aplicativo.
+- **TV ao fundo (experimental):** teste opcional em Personalizar, inicialmente desligado e sem áudio, apenas para entradas de vídeo conectadas expostas por `TvInputManager` (como HDMI). Usa `TvView`, libera a sessão ao sair do launcher e retorna ao papel de parede em caso de recusa, perda do vídeo, falta de memória ou timeout. Não inicia no modo leve e não é reativado pela restauração de um backup. Canais de antena e a compatibilidade da entrada no aparelho TCL dependem do acesso do firmware; não há reprodução garantida de fontes protegidas nem acesso forçado a canais.
+
 ## Entradas e TV
 
 As fontes são consultadas com `TvInputManager`: entradas HDMI, vídeo e sintonizadores disponibilizados pelo firmware. Entradas ocultadas nos ajustes são respeitadas. Teclados, mouses e nomes de dispositivos de entrada não aparecem nessa lista. A troca usa URIs do `TvContract` e oferece acesso ao seletor nativo quando o firmware não expõe a fonte.
 
-TV e canais abre o aplicativo nativo de televisão. Não há reprodução de TV atrás do launcher nesta versão; o acesso à imagem e ao áudio por terceiros depende do firmware.
+TV e canais abre o aplicativo nativo de televisão. O teste de vídeo ao fundo é independente da abertura da TV nativa e permanece desativado até uma seleção explícita do usuário.
 
 ## Desempenho e clima
 
@@ -48,7 +56,7 @@ Fonte das coordenadas: [IBGE, mapa municipal](https://geoftp.ibge.gov.br/cartas_
 2. Gera APK release unsigned e um APK interno com código maior para testar a atualização; nenhum APK debug é distribuído.
 3. O proprietário assina com a chave permanente usando [tools/sign_release.py](tools/sign_release.py), em ambiente privado.
 4. A branch `signed-releases` contém somente material público de distribuição e o fonte; não contém a chave ou suas senhas.
-5. O workflow valida pacote, versões, hashes, metadados de atualização e certificado fixo. No emulador, instala a 0.7.0 pública, altera uma preferência pela interface e aplica a 0.8.0 com `adb install -r`. Depois aplica um APK interno de código maior. A publicação exige que as duas atualizações preservem o Home alternativo e a preferência.
+5. O workflow valida pacote, versões, hashes, metadados de atualização e certificado fixo. No emulador, instala a 0.8.0 pública, altera uma preferência pela interface e aplica a 0.9.0 com `adb install -r`. Depois aplica um APK interno de código maior. A publicação exige que as duas atualizações preservem o Home alternativo e a preferência.
 
 O APK interno de teste não é publicado em Releases. O resultado da verificação acompanha o APK público. O teste reproduz o caso em que a imagem Android TV dá prioridade ao Google: desativa o launcher original apenas para o usuário do emulador descartável, confirma o TCL Light como Home e restaura o componente ao terminar. Os testes do atualizador usam o APK público 0.7.0 de assinatura permanente para validar downloads, integridade e identidade; ele só entra no APK de testes. Esses testes não substituem a validação do instalador no firmware da TCL física.
 
