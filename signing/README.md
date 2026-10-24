@@ -16,7 +16,9 @@ python3 tools/sign_release.py --unsigned /caminho/unsigned --private-backup /cam
 
 O script verifica os hashes do artifact e o certificado da chave, assina o APK público e o APK interno de teste e confere os dois. Copie apenas os APKs já assinados e os arquivos `manifest.json` e `TCL-Light-atualizacao.json` para `dist/signed/` na branch `signed-releases`. Não copie o backup.
 
-A publicação confere a impressão fixa, exige build release sem depuração, valida pacote/código de versão e os metadados que serão lidos pelo atualizador. Testa no emulador a atualização da 0.7.0 pública para a versão atual e, depois, para um APK interno de código maior. As duas devem preservar uma configuração feita pela interface e o TCL Light como Home. O launcher Google é desativado apenas no emulador para reproduzir a configuração do proprietário e restaurado ao terminar.
+A publicação confere a impressão fixa, exige build release sem depuração, valida pacote/código de versão e os metadados que serão lidos pelo atualizador. Testa no emulador a atualização da 0.8.0 pública para a versão atual e, depois, para um APK interno de código maior. As duas devem preservar uma configuração feita pela interface e o TCL Light como Home. O launcher Google é desativado apenas no emulador para reproduzir a configuração do proprietário e restaurado ao terminar.
+
+Depois da publicação, uma instalação limpa da 0.8.0 busca o canal público pelo próprio atualizador, baixa o APK e abre o instalador nativo. A confirmação de instalação e a preservação da tela inicial e do modo leve são verificadas antes de encerrar a validação da distribuição. Esse teste não usa `adb install -r` para instalar a nova versão.
 
 O arquivo `TCL-Light-atualizacao.json` usa um link versionado do GitHub e o SHA-256 do APK já assinado. O publicador atualiza a cópia do canal `beta` junto com a versão. Não gere esse manifesto a partir de um APK unsigned ou debug.
 

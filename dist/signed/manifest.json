@@ -1,12 +1,12 @@
 {
-  "version_name": "0.8.0",
-  "version_code": 8,
-  "upgrade_probe_code": 9,
+  "version_name": "0.9.0",
+  "version_code": 9,
+  "upgrade_probe_code": 10,
   "package": "com.b5solucoes.tcllight",
-  "source_commit": "71838abc96fb6802a3714121cfeab5930a299a64",
+  "source_commit": "4d11732532388792cc5dae71e9eb542279ec4bd1",
   "certificate_sha256": "21e8b079624ca39fcb84817f2a711c46e474d2ccdb65f6e629e26fe153fdb688",
   "files": {
-    "TCL-Light-0.8.0.apk": "ad191efb99249266b8f474758c4331299d5edb0ae05262847f338c4d6661f414",
-    "upgrade-probe.apk": "f291ad90e7cd7346035ec0f373fd518939674ca7fd4dc454c1bfd32b7ea58d10"
+    "TCL-Light-0.9.0.apk": "8cb02a79eadc329bf32fa1e70e66d9d18ac5275d33732bb4403c28e6a5a0f066",
+    "upgrade-probe.apk": "10a845a8518dfbf49e1c6d184dabfd6e557cbbc324f0f8df3ee421067c027761"
   }
 }

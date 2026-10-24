@@ -46,7 +46,7 @@ internal class LauncherPanel(private val ui: TvStyle, title: String, subtitle: S
         addView(scrim, LayoutParams(-1,-1))
         val width = minOf(ui.dp(432),(resources.displayMetrics.widthPixels * .56f).toInt())
         addView(sheet, LayoutParams(width,-1,Gravity.END).apply {
-            setMargins(0,ui.dp(12),ui.dp(12),ui.dp(12))
+            setMargins(0,ui.dp(maxOf(12,ui.verticalInset-20)),ui.dp(maxOf(12,ui.horizontalInset-20)),ui.dp(maxOf(12,ui.verticalInset-20)))
         })
         val header = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL }
         val titles = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
@@ -66,7 +66,7 @@ internal class LauncherPanel(private val ui: TvStyle, title: String, subtitle: S
         ui.focus(exit,"panel:close",12,true)
         actions["panel:close"] = exit
         header.addView(exit,LinearLayout.LayoutParams(ui.dp(40),ui.dp(40)))
-        sheet.addView(header,LinearLayout.LayoutParams(-1,ui.dp(64)))
+        sheet.addView(header,LinearLayout.LayoutParams(-1,ui.height(64)))
         val scroll = ScrollView(context).apply {
             isVerticalScrollBarEnabled = false
             overScrollMode = View.OVER_SCROLL_NEVER
@@ -128,7 +128,7 @@ internal class LauncherPanel(private val ui: TvStyle, title: String, subtitle: S
                 ui.focus(tile,item.key,16)
                 tile.setOnClickListener { item.run() }
                 actions[item.key] = tile
-                row.addView(tile,LinearLayout.LayoutParams(0,ui.dp(99),1f).apply {
+                row.addView(tile,LinearLayout.LayoutParams(0,ui.height(99),1f).apply {
                     if(index == 0) rightMargin = ui.dp(10)
                 })
             }
@@ -160,7 +160,7 @@ internal class LauncherPanel(private val ui: TvStyle, title: String, subtitle: S
         ui.focus(row,item.key,12,true)
         row.setOnClickListener { item.run() }
         actions[item.key] = row
-        content.addView(row,LinearLayout.LayoutParams(-1,ui.dp(57)).apply {
+        content.addView(row,LinearLayout.LayoutParams(-1,ui.height(57)).apply {
             bottomMargin = ui.dp(3)
         })
     }

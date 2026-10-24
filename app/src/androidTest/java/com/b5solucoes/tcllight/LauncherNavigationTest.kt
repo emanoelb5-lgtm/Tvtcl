@@ -162,6 +162,76 @@ class LauncherNavigationTest {
         assertNull(find("launcher-panel"))
     }
 
+    @Test fun testTvShortcutsCanBePinnedMovedAndRemovedByRemote() {
+        val id="sample.tv/.Input/HW1"
+        onUi {
+            MainActivity::class.java.getDeclaredField("videoInputs").apply { isAccessible=true }
+                .set(screen,listOf(TvSource(id,"HDMI 1",true,0,"sample.tv")))
+        }
+        key(KeyEvent.KEYCODE_MENU);click("action:shortcuts")
+        click("shortcut-option:input:"+id)
+        key(KeyEvent.KEYCODE_MENU)
+        assertNotNull(find("shortcut:tv"));assertNotNull(find("shortcut:input:"+id))
+        onUi { find("shortcut:input:"+id)!!.performLongClick() }
+        click("shortcut:move:-1")
+        val prefs=instrumentation.targetContext.getSharedPreferences("launcher",0)
+        assertEquals("input:"+id,HomeShortcuts.decode(prefs.getString(HomeShortcuts.PREF,null)).first().key)
+        click("shortcut:remove")
+        assertNull(find("shortcut:input:"+id))
+        onUi { find("shortcut:tv")!!.performLongClick() };click("shortcut:remove")
+        assertNull(find("shortcut:tv"))
+        assertTrue(HomeShortcuts.decode(prefs.getString(HomeShortcuts.PREF,null)).isEmpty())
+    }
+
+    @Test fun testNetworkSheetShowsTheSystemAddressAndRestoresFocus() {
+        key(KeyEvent.KEYCODE_MENU);click("action:wifi")
+        val actual=NetworkStatus.read(instrumentation.targetContext.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager)
+        assertTrue((find("network:address") as TextView).text.toString().contains(actual.address))
+        assertTrue((find("network:status") as TextView).text.isNotBlank())
+        key(KeyEvent.KEYCODE_BACK)
+        await { find("action:wifi")?.hasFocus()==true }
+    }
+
+    @Test fun testLocalBackupCanBeReviewedAndRestoredAcrossRecreation() {
+        val prefs=instrumentation.targetContext.getSharedPreferences("launcher",0)
+        prefs.edit().putInt("wallpaper_dim",65).putString("order.grid",AppOrdering.encode(listOf(fixture))).commit()
+        key(KeyEvent.KEYCODE_MENU);click("action:backup");click("backup:save")
+        await { (find("backup:status") as? TextView)?.text.toString().contains("Cópia salva") }
+        prefs.edit().putInt("wallpaper_dim",20).putString("order.grid","[]").commit()
+        click("backup:local")
+        await { find("backup:confirm") != null }
+        assertEquals(20,prefs.getInt("wallpaper_dim",0))
+        click("backup:confirm")
+        await {
+            scenario.onActivity { screen=it }
+            (find("backup:status") as? TextView)?.text.toString().contains("Backup restaurado")
+        }
+        assertEquals(65,prefs.getInt("wallpaper_dim",0))
+        assertEquals(listOf(fixture),AppOrdering.decode(prefs.getString("order.grid",null)))
+        assertNull(find("home:tv-background"))
+    }
+
+    @Test fun testLargeTextAndMaximumSafeMarginsKeepHeaderAndFocusedCardInside() {
+        key(KeyEvent.KEYCODE_MENU);click("action:customize");click("pref:display")
+        for ((key,value) in listOf("text_scale" to 120,"safe_horizontal" to 72,"safe_vertical" to 24)) {
+            click("display:"+key);click("display-choice:"+value)
+            await { scenario.onActivity { screen=it };find("display:"+key)?.hasFocus()==true }
+        }
+        key(KeyEvent.KEYCODE_MENU)
+        val ids=(0 until 42).map { "sample.large.$it" };seedOrderCatalog(ids)
+        onUi { find("grid:"+ids.first())!!.requestFocus() }
+        repeat(18) { key(KeyEvent.KEYCODE_DPAD_DOWN) };SystemClock.sleep(400)
+        onUi {
+            val header=android.graphics.Rect();find("home:header")!!.getGlobalVisibleRect(header)
+            val date=android.graphics.Rect();find("header:date")!!.getGlobalVisibleRect(date)
+            val network=android.graphics.Rect();find("nav:wifi")!!.getGlobalVisibleRect(network)
+            assertTrue(date.right<=network.left)
+            val focused=screen.currentFocus!!;val rect=android.graphics.Rect();assertTrue(focused.getGlobalVisibleRect(rect))
+            assertTrue(rect.top>=header.bottom);assertTrue(rect.height()>=focused.height)
+            assertTrue((find("header:time") as TextView).textSize>26f*screen.resources.displayMetrics.scaledDensity)
+        }
+    }
+
     private fun laneOrder(lane: String): List<String> = onUi {
         val tags = ArrayList<String>()
         fun visit(view: View) {
@@ -350,10 +420,16 @@ class LauncherNavigationTest {
         key(KeyEvent.KEYCODE_MENU)
         await { find("action:wifi")?.hasFocus() == true }
         capture("action-center.png")
+        click("action:wifi");capture("network.png");key(KeyEvent.KEYCODE_BACK)
+        click("action:shortcuts");capture("shortcuts.png");key(KeyEvent.KEYCODE_BACK)
+        click("action:backup");capture("backup.png");key(KeyEvent.KEYCODE_BACK)
         click("action:update")
         capture("updates.png")
         key(KeyEvent.KEYCODE_BACK)
         click("action:customize")
+        click("pref:display");capture("display.png");key(KeyEvent.KEYCODE_BACK)
+        click("pref:tv-background");capture("background-experimental.png")
+        assertNull(find("home:tv-background"));key(KeyEvent.KEYCODE_BACK)
         capture("customization.png")
         key(KeyEvent.KEYCODE_BACK)
         click("action:inputs")

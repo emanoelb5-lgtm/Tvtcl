@@ -2,7 +2,7 @@ name: Compilar e publicar TCL Light
 
 on:
   push:
-    branches: [main, premium-tv-v08, signed-releases]
+    branches: [main, premium-tv-v09, signed-releases]
   workflow_dispatch:
 
 concurrency:
@@ -123,3 +123,26 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash tools/publish_signed.sh
+      - name: Verificar atualização interna pelo canal publicado
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 28
+          target: android-tv
+          arch: x86
+          profile: tv_720p
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: python3 tools/verify_internal_update.py
+      - name: Guardar prova da atualização interna
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TCL-Light-Internal-Update-QA
+          path: dist/internal-update-qa/
+      - name: Publicar resultado da atualização interna
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(python3 -c 'import json; print(json.load(open("signing/version.json"))["version_name"])')
+          gh release upload "v${version}" "dist/internal-update-qa/TCL-Light-${version}-atualizacao-interna.json" --clobber
+          gh release upload beta "dist/internal-update-qa/TCL-Light-${version}-atualizacao-interna.json" --clobber
