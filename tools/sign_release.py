@@ -43,4 +43,11 @@ for input_name, output_name in [("release-unsigned.apk", "TCL-Light-" + source["
     files[output_name] = hashlib.sha256(output.read_bytes()).hexdigest()
 (args.output / "manifest.json").write_text(json.dumps({**{k: v for k, v in source.items() if k != "files"},
     "certificate_sha256": expected, "files": files}, indent=2) + "\n")
+name = "TCL-Light-" + source["version_name"] + ".apk"
+(args.output / "TCL-Light-atualizacao.json").write_text(json.dumps({
+    "schema": 1, "package": source["package"], "version_name": source["version_name"],
+    "version_code": source["version_code"], "min_sdk": 23,
+    "apk_url": "https://github.com/emanoelb5-lgtm/Tvtcl/releases/download/v" + source["version_name"] + "/" + name,
+    "size_bytes": (args.output / name).stat().st_size, "sha256": files[name],
+    "certificate_sha256": expected}, indent=2) + "\n")
 print("APKs assinados e conferidos com o certificado permanente: " + expected)

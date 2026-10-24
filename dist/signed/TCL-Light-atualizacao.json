@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "package": "com.b5solucoes.tcllight",
+  "version_name": "0.8.0",
+  "version_code": 8,
+  "min_sdk": 23,
+  "apk_url": "https://github.com/emanoelb5-lgtm/Tvtcl/releases/download/v0.8.0/TCL-Light-0.8.0.apk",
+  "size_bytes": 493181,
+  "sha256": "ad191efb99249266b8f474758c4331299d5edb0ae05262847f338c4d6661f414",
+  "certificate_sha256": "21e8b079624ca39fcb84817f2a711c46e474d2ccdb65f6e629e26fe153fdb688"
+}

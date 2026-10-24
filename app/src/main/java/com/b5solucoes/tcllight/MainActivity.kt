@@ -69,6 +69,17 @@ class MainActivity : Activity() {
     private var panel: LauncherPanel? = null
     private var panelBack: (() -> Unit)? = null
     private var activePanel = ""
+    private val updates by lazy { AppUpdates.get(applicationContext) }
+    private var updateStatus: TextView? = null
+    private var updateProgressBar: ProgressBar? = null
+    private var updatePhase: UpdatePhase? = null
+    private var waitingInstallPermission = false
+    private val updateObserver: (UpdateState) -> Unit = { state ->
+        if (activePanel == "updates") {
+            if (updatePhase != state.phase) showUpdates()
+            else applyUpdateProgress(state)
+        }
+    }
     private var videoInputs: List<TvSource> = emptyList()
     private var inputsLoading = false
     private var inputsAgain = false
@@ -133,6 +144,7 @@ class MainActivity : Activity() {
     }
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
+        waitingInstallPermission = state?.getBoolean("update_permission_pending") == true
         window.statusBarColor = ui.base
         window.navigationBarColor = ui.base
         @Suppress("DEPRECATION")
@@ -160,6 +172,7 @@ class MainActivity : Activity() {
         tvSources.start()
         refreshInputs()
         weather.start()
+        updates.observe(updateObserver)
         if(appsDirty) refresh()
         if(usageDirty) { usageDirty = false; renderApps() }
         requestArtworkUpdate()
@@ -174,8 +187,14 @@ class MainActivity : Activity() {
         if(networkRegistered) { try { cm.unregisterNetworkCallback(networkEvents) } catch(_: Exception) {} }
         tvSources.stop()
         weather.stop()
+        updates.removeObserver(updateObserver)
         networkRegistered = false
         super.onStop()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean("update_permission_pending", waitingInstallPermission)
+        super.onSaveInstanceState(outState)
     }
 
     override fun onDestroy() {
@@ -250,16 +269,18 @@ class MainActivity : Activity() {
         wallpapers = WallpaperDeck(this,prefs,::economy)
         frame.addView(wallpapers,FrameLayout.LayoutParams(-1,-1))
         homeLayer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; clipChildren = false; clipToPadding = false
+            orientation = LinearLayout.VERTICAL; clipChildren = true; clipToPadding = true
         }
         frame.addView(homeLayer,FrameLayout.LayoutParams(-1,-1))
         setContentView(frame)
 
         val nav = LinearLayout(this).apply {
+            tag = "home:header"
             gravity = Gravity.CENTER_VERTICAL; clipChildren = false; clipToPadding = false
             setPadding(dp(42), dp(10), dp(42), dp(10))
+            elevation = dp(4).toFloat()
             background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                intArrayOf(Color.argb(225, 8, 17, 27), Color.argb(110, 8, 17, 27)))
+                intArrayOf(Color.rgb(8, 17, 27), Color.argb(240, 8, 17, 27)))
         }
         homeLayer.addView(nav,lp(-1,dp(76)))
         val climate = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
@@ -291,8 +312,10 @@ class MainActivity : Activity() {
         nav.addView(centralButton,lp(dp(103),dp(39))); navViews.add(centralButton)
 
         listScroll = ScrollView(this).apply {
+            tag = "home:viewport"
             isVerticalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER
-            clipChildren = false; clipToPadding = false; isFillViewport = true
+            // Focused/scrolled tiles must never draw into the fixed header or footer.
+            clipChildren = true; clipToPadding = true; isFillViewport = true
             descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
         }
         homeLayer.addView(listScroll,LinearLayout.LayoutParams(-1,0,1f))
@@ -326,7 +349,7 @@ class MainActivity : Activity() {
         }
         column.addView(appGrid,lp(-1,-2))
         favorites.addView(ui.text("Carregando aplicativos…",12f,ui.muted),lp(-1,dp(110)))
-        val footer = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+        val footer = LinearLayout(this).apply { tag = "home:footer"; gravity = Gravity.CENTER_VERTICAL }
         controlHint = ui.text("OK  Abrir    ·    Segure OK  Mover e opções",9.5f,ui.quiet).apply { tag = "home:hint" }
         footer.addView(controlHint,
             LinearLayout.LayoutParams(0,-2,1f))
@@ -355,7 +378,17 @@ class MainActivity : Activity() {
         }
 
     private fun styleHome(view: View,key: String,transparent: Boolean = false) {
-        ui.focus(view,key,14,transparent) { if(it) lastHomeFocus = key }
+        ui.focus(view,key,14,transparent) { focused ->
+            if (focused) {
+                lastHomeFocus = key
+                if (key.startsWith("grid:") || key.startsWith("top:")) view.post {
+                    if (view.hasFocus() && panel == null) {
+                        // Include the focus outline in the native scroll request.
+                        view.requestRectangleOnScreen(Rect(0, -dp(5), view.width, view.height + dp(5)), economy())
+                    }
+                }
+            }
+        }
         homeViews[key] = view
     }
 
@@ -601,6 +634,8 @@ class MainActivity : Activity() {
 
     private fun newPanel(title: String,subtitle: String,back: (() -> Unit)? = null): LauncherPanel {
         activePanel = ""
+        updateStatus = null
+        updateProgressBar = null
         if(panel == null) returnFocus = (currentFocus?.tag as? String) ?: lastHomeFocus
         panel?.let { frame.removeView(it) }
         homeLayer.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
@@ -617,6 +652,7 @@ class MainActivity : Activity() {
         val old = panel ?: return
         old.animate().cancel()
         frame.removeView(old); panel = null; panelBack = null; activePanel = ""
+        updateStatus = null; updateProgressBar = null
         homeLayer.descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
         homeLayer.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
         (homeViews[returnFocus] ?: topViews.firstOrNull() ?: centralButton).requestFocus()
@@ -638,7 +674,10 @@ class MainActivity : Activity() {
             val total = Formatter.formatShortFileSize(this,stat.totalBytes)
             sheet.storage(free + " livres de " + total,1f-stat.availableBytes.toFloat()/stat.totalBytes.coerceAtLeast(1L))
         } catch(_: Exception) {}
+        sheet.row(PanelAction("action:update", "Atualizar TCL Light", "Versão ${BuildConfig.VERSION_NAME} · Verificar atualizações", TvIcon.Kind.REFRESH) { showUpdates() })
         sheet.caption("Mais controles")
+        if (mediaApps.any { it.packageName == "com.android.vending" })
+            sheet.row(PanelAction("action:store", "Google Play Store", "Instalar e atualizar seus aplicativos", TvIcon.Kind.GRID) { openPlayStore() })
         sheet.row(PanelAction("action:customize","Personalizar aparência","Fundos, cartões e mais utilizados",TvIcon.Kind.PALETTE) { showPreferences() })
         sheet.row(PanelAction("action:settings","Configurações da TV","Imagem, áudio e sistema",TvIcon.Kind.CONTROLS) { openSettings() })
         sheet.row(PanelAction("action:bluetooth","Controles e Bluetooth","Parear acessórios",TvIcon.Kind.DEVICES) { openPeripheralSettings() })
@@ -650,6 +689,90 @@ class MainActivity : Activity() {
             Toast.makeText(this,"Atualizando aplicativos…",Toast.LENGTH_SHORT).show()
         })
         sheet.focusAction(focus)
+    }
+
+    private fun showUpdates() {
+        val state = updates.state
+        val sheet = newPanel("Atualizações", "TCL Light ${BuildConfig.VERSION_NAME}") { showActionCenter("action:update") }
+        activePanel = "updates"
+        updatePhase = state.phase
+        state.release?.let { release ->
+            sheet.caption("Versão ${release.versionName} · ${Formatter.formatShortFileSize(this, release.size)}")
+        }
+        updateStatus = sheet.paragraph(state.message).apply { tag = "update:status" }
+        updateProgressBar = if (state.phase in listOf(UpdatePhase.CHECKING, UpdatePhase.DOWNLOADING, UpdatePhase.VERIFYING)) sheet.progress() else null
+        applyUpdateProgress(state)
+        when (state.phase) {
+            UpdatePhase.IDLE, UpdatePhase.CURRENT -> sheet.row(PanelAction("update:check", "Verificar atualizações", "Buscar a versão mais recente no GitHub", TvIcon.Kind.REFRESH) { updates.check() })
+            UpdatePhase.AVAILABLE -> sheet.row(PanelAction("update:download", "Baixar versão ${state.release!!.versionName}", "Download direto do GitHub", TvIcon.Kind.REFRESH) { updates.download() })
+            UpdatePhase.DOWNLOADING -> sheet.row(PanelAction("update:cancel", "Cancelar download", "Você pode baixar novamente depois", TvIcon.Kind.CLOSE) { updates.cancel() })
+            UpdatePhase.READY -> sheet.row(PanelAction("update:install", "Instalar atualização", "Confirmar no instalador da TV", TvIcon.Kind.CHECK) { requestUpdateInstall() })
+            UpdatePhase.ERROR -> sheet.row(PanelAction("update:retry", "Tentar novamente", if (state.release == null) "Verificar a atualização" else "Baixar o arquivo novamente", TvIcon.Kind.REFRESH) {
+                if (updates.state.release == null) updates.check() else updates.download()
+            })
+            else -> Unit
+        }
+        sheet.paragraph("Sua organização e seus ajustes são mantidos. A TV pedirá sua confirmação antes de instalar.")
+        sheet.focusAction()
+    }
+
+    private fun applyUpdateProgress(state: UpdateState) {
+        updateStatus?.let { setTextIfChanged(it, state.message + if (state.phase == UpdatePhase.DOWNLOADING) " ${state.percent}%" else "") }
+        updateProgressBar?.apply {
+            isIndeterminate = state.phase != UpdatePhase.DOWNLOADING
+            progress = state.percent
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun requestUpdateInstall() {
+        if (Build.VERSION.SDK_INT >= 26 && !packageManager.canRequestPackageInstalls()) {
+            waitingInstallPermission = true
+            try {
+                startActivityForResult(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:$packageName")), 801)
+            } catch (_: Exception) {
+                waitingInstallPermission = false
+                updates.installMessage("Abra os ajustes de segurança da TV e permita instalações pelo TCL Light. Depois, escolha Instalar atualização novamente.")
+                try { startActivity(Intent(Settings.ACTION_SECURITY_SETTINGS)) } catch (_: Exception) {}
+            }
+            return
+        }
+        updates.prepareInstall {
+            if (!foreground || activePanel != "updates") return@prepareInstall
+            val intent = UpdateApkProvider.installIntent(this)
+            try { startActivityForResult(intent, 802) }
+            catch (_: ActivityNotFoundException) {
+                // Older vendor installers may only advertise the standard APK VIEW action.
+                try { startActivityForResult(Intent(intent).setAction(Intent.ACTION_VIEW), 802) }
+                catch (_: Exception) { updates.installMessage("O instalador da TV não está disponível. Tente novamente após reiniciar a TV.") }
+            }
+            catch (_: Exception) { updates.installMessage("Não foi possível abrir o instalador da TV. Tente novamente.") }
+        }
+    }
+
+    @Deprecated("Legacy TV installer result")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 801 && waitingInstallPermission) {
+            waitingInstallPermission = false
+            showUpdates()
+            if (Build.VERSION.SDK_INT >= 26 && packageManager.canRequestPackageInstalls()) {
+                // onActivityResult precedes onStart; wait for the Activity to be interactive.
+                handler.post { if (!isDestroyed) requestUpdateInstall() }
+            } else updates.installMessage("Permita instalações pelo TCL Light para continuar. O download já está pronto.")
+        } else if (requestCode == 802 && resultCode != RESULT_OK) {
+            updates.installMessage("A instalação não foi concluída. Você pode tentar novamente com o arquivo já baixado.")
+        }
+    }
+
+    private fun openPlayStore() {
+        val intent = packageManager.getLeanbackLaunchIntentForPackage("com.android.vending")
+            ?: packageManager.getLaunchIntentForPackage("com.android.vending")
+        try {
+            if (intent == null) throw ActivityNotFoundException()
+            startActivity(intent)
+        } catch (_: Exception) { Toast.makeText(this, "A Play Store não está disponível nesta TV.", Toast.LENGTH_SHORT).show() }
     }
 
     private fun showInfo(title: String,body: String,icon: TvIcon.Kind = TvIcon.Kind.INFO,
@@ -893,16 +1016,30 @@ class MainActivity : Activity() {
                 val isSystemApp = (info.flags and ApplicationInfo.FLAG_SYSTEM != 0) ||
                     (info.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP != 0)
                 // Mesmo um app de sistema só aparece se for um streaming/mídia conhecido.
-                if (isSystemApp && !isStreamingApp(pkg, name,
+                if (isSystemApp && !isVisibleSystemApp(pkg, name,
                     if (Build.VERSION.SDK_INT >= 26) info.category else -1)) continue
                 // Home/Configurações mantidos só na central superior.
                 if (isInternalLauncherOrSettings(pkg, name)) continue
                 found[pkg] = TvApp(name, pkg, ComponentName(pkg, activity.name))
             }
         }
+        // Some TV firmware omits the store from the generic launcher query.
+        if (!found.containsKey("com.android.vending")) {
+            val store = manager.getLeanbackLaunchIntentForPackage("com.android.vending")
+                ?: manager.getLaunchIntentForPackage("com.android.vending")
+            val component = store?.component
+            if (component != null) {
+                val label = try { manager.getApplicationLabel(manager.getApplicationInfo(component.packageName, 0)).toString() }
+                    catch (_: Exception) { "Google Play Store" }
+                found[component.packageName] = TvApp(label, component.packageName, component)
+            }
+        }
         val comparator = Collator.getInstance(locale)
         return found.values.sortedWith(Comparator { a, b -> comparator.compare(a.name, b.name) })
     }
+
+    private fun isVisibleSystemApp(pkg: String, name: String, category: Int): Boolean =
+        pkg == "com.android.vending" || isStreamingApp(pkg, name, category)
 
     private fun isInternalLauncherOrSettings(pkgRaw: String, labelRaw: String): Boolean {
         val pkg = pkgRaw.lowercase(Locale.ROOT)

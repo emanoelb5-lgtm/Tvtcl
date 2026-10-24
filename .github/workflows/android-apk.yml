@@ -2,7 +2,7 @@ name: Compilar e publicar TCL Light
 
 on:
   push:
-    branches: [main, premium-tv-v07, signed-releases]
+    branches: [main, premium-tv-v08, signed-releases]
   workflow_dispatch:
 
 concurrency:
@@ -37,6 +37,7 @@ jobs:
         run: |
           python3 -m pip install --quiet pillow
           python3 tools/build_wallpapers.py
+          python3 tools/fetch_upgrade_baseline.py
       - name: Compilar launcher e testes
         run: gradle :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace
       - name: Habilitar KVM
@@ -94,7 +95,9 @@ jobs:
           SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n 1)
           "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
       - name: Bloquear pacote, versão ou certificado incorreto
-        run: python3 tools/verify_signed.py
+        run: |
+          python3 tools/verify_signed.py
+          python3 tools/fetch_upgrade_baseline.py
       - name: Habilitar KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
