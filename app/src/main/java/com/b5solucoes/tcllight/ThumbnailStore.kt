@@ -56,6 +56,7 @@ internal class ThumbnailStore(private val directory: File,private val maxBytes: 
                 data.writeInt(MAGIC);data.writeLong(now());data.writeByte((if(value.banner)1 else 0) or (if(opaque)2 else 0))
                 data.writeInt(encoded.size());encoded.writeTo(data);data.flush();atomic.finishWrite(output)
             } catch(error:Exception) { atomic.failWrite(output);throw error }
+            atomic.baseFile.setLastModified(now())
             prune()
         }
     }

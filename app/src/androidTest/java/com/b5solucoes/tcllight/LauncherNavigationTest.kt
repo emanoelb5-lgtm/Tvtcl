@@ -174,6 +174,14 @@ class LauncherNavigationTest {
             assertSame("Retornar deve manter a capa pronta",cover,image.drawable)
         }
         assertEquals(1,calls.get())
+        val recovered=java.util.concurrent.CountDownLatch(1)
+        onUi {
+            screen.onTrimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL)
+            var immediate=false
+            art.load(component) { assertNotNull("A cópia local deve sobreviver à pressão de memória",it);immediate=true;recovered.countDown() }
+            assertFalse("Pressão crítica deve liberar o cache em RAM",immediate)
+        }
+        assertTrue(recovered.await(8,java.util.concurrent.TimeUnit.SECONDS))
         onUi { bindings.close();repository.close();screen.findViewById<ViewGroup>(android.R.id.content).removeView(overlay) }
         folder.deleteRecursively()
     }

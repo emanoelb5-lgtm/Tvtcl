@@ -271,6 +271,9 @@ class MainActivity : Activity() {
         if(pressure) {
             val severe=level==TRIM_MEMORY_RUNNING_CRITICAL || level>=TRIM_MEMORY_MODERATE
             artwork.trim(severe);mediaHub?.trim(severe)
+            if(severe || !foreground) artworkBindings.forEach {
+                it.image.setImageDrawable(null);it.placeholder.visibility=View.VISIBLE;it.hasImage=false
+            }
             if(backgroundTv?.state==BackgroundTvState.PLAYING) backgroundTv?.fail("A TV ao fundo foi encerrada para liberar memória.")
         }
     }
