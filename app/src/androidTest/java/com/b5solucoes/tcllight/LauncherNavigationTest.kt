@@ -284,6 +284,46 @@ class LauncherNavigationTest {
         }
     }
 
+    @Test fun testDefaultHomeShowsAWholeGridCardBeforeScrolling() {
+        seedOrderCatalog((0 until 20).map { "sample.visible.$it" })
+        onUi { (find("home:viewport") as android.widget.ScrollView).scrollTo(0,0) }
+        instrumentation.waitForIdleSync()
+        onUi {
+            val card=find("grid:sample.visible.0")!!
+            val rect=android.graphics.Rect();val viewport=android.graphics.Rect()
+            assertTrue(card.getGlobalVisibleRect(rect));find("home:viewport")!!.getGlobalVisibleRect(viewport)
+            assertEquals("O primeiro cartão deve aparecer inteiro sem rolar",card.height,rect.height())
+            assertTrue(rect.top>=viewport.top && rect.bottom<=viewport.bottom)
+        }
+    }
+
+    @Test fun testThemesRecreateTheVisibleInterfaceAndRetainFocusAndSettingsAtLargeText() {
+        val prefs=instrumentation.targetContext.getSharedPreferences("launcher",0)
+        prefs.edit().putInt("text_scale",120).putInt("safe_horizontal",72).putInt("safe_vertical",24)
+            .putInt("wallpaper_mode",5).putBoolean("eco_mode",true)
+            .putString("order.grid",AppOrdering.encode(listOf(fixture))).commit()
+        scenario.recreate();scenario.onActivity { screen=it }
+        await { find("grid:"+fixture)!=null }
+        var previous=onUi { (find("home:header")!!.background as android.graphics.drawable.GradientDrawable).colors!!.toList() }
+        key(KeyEvent.KEYCODE_MENU);click("action:customize")
+        for(index in listOf(1,2,0)) {
+            click("pref:theme");click("theme:$index")
+            await { scenario.onActivity { screen=it };find("pref:theme")?.hasFocus()==true }
+            assertEquals(index,prefs.getInt(LauncherPalettes.PREF,-1))
+            val colors=onUi { (find("home:header")!!.background as android.graphics.drawable.GradientDrawable).colors!!.toList() }
+            assertNotEquals("O tema precisa recolorir a interface após recriar",previous,colors);previous=colors
+            assertEquals(120,prefs.getInt("text_scale",0));assertEquals(72,prefs.getInt("safe_horizontal",0))
+            assertEquals(5,prefs.getInt("wallpaper_mode",0));assertTrue(prefs.getBoolean("eco_mode",false))
+            assertEquals(listOf(fixture),AppOrdering.decode(prefs.getString("order.grid",null)))
+            onUi {
+                val focused=screen.currentFocus!!;val rect=android.graphics.Rect()
+                assertTrue(focused.getGlobalVisibleRect(rect));assertEquals(focused.height,rect.height())
+            }
+        }
+        key(KeyEvent.KEYCODE_BACK);assertTrue(find("action:customize")!!.hasFocus())
+        key(KeyEvent.KEYCODE_MENU);assertNull(find("launcher-panel"))
+    }
+
     @Test fun testMoveBothLanesCanBeCancelledAndSavedAcrossRecreation() {
         seedOrderCatalog()
         val prefs = instrumentation.targetContext.getSharedPreferences("launcher", 0)
@@ -555,5 +595,15 @@ class LauncherNavigationTest {
         onUi { find("grid:" + many.first())!!.requestFocus() }
         repeat(16) { key(KeyEvent.KEYCODE_DPAD_DOWN) }
         capture("home-scrolled.png")
+        key(KeyEvent.KEYCODE_MENU);click("action:customize");click("pref:theme");capture("themes.png")
+        for((index,name) in listOf(1 to "safira",2 to "ambar",0 to "aurora")) {
+            click("theme:$index")
+            await { scenario.onActivity { screen=it };find("pref:theme")?.hasFocus()==true }
+            capture("personalizar-$name.png")
+            key(KeyEvent.KEYCODE_MENU)
+            onUi { (find("home:viewport") as android.widget.ScrollView).scrollTo(0,0) }
+            capture("home-$name.png")
+            key(KeyEvent.KEYCODE_MENU);capture("central-$name.png");click("action:customize");click("pref:theme")
+        }
     }
 }

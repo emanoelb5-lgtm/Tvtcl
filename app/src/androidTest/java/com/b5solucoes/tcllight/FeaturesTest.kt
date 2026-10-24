@@ -30,6 +30,7 @@ class FeaturesTest {
     @Test fun testBackupRestoresOrganizationAppearanceAndUsageWithoutPrivateState() {
         val prefs=context.getSharedPreferences("backup-test",Context.MODE_PRIVATE)
         prefs.edit().clear().putInt("wallpaper_dim",65).putInt("text_scale",120).putInt("safe_horizontal",72)
+            .putInt(LauncherPalettes.PREF,2)
             .putBoolean("eco_mode",true).putStringSet("hidden_apps",setOf("sample.hidden"))
             .putString("order.grid",AppOrdering.encode(listOf("sample.two","sample.one")))
             .putString(HomeShortcuts.PREF,HomeShortcuts.encode(listOf(HomeShortcut("tv","Antena"),HomeShortcut("input:sample/.Tv/HW1","Videogame"))))
@@ -42,6 +43,7 @@ class FeaturesTest {
         prefs.edit().putInt("wallpaper_dim",20).putString("order.grid","[]").putInt("usage.count.sample.one",1).commit()
         LauncherBackup.restore(prefs,data)
         assertEquals(65,prefs.getInt("wallpaper_dim",0));assertEquals(120,prefs.getInt("text_scale",0))
+        assertEquals(2,prefs.getInt(LauncherPalettes.PREF,-1))
         assertEquals(listOf("sample.two","sample.one"),AppOrdering.decode(prefs.getString("order.grid",null)))
         assertEquals(8,prefs.getInt("usage.count.sample.one",0));assertEquals(1234567890123L,prefs.getLong("usage.time.sample.one",0))
         assertEquals("Antena",HomeShortcuts.decode(prefs.getString(HomeShortcuts.PREF,null))[0].name)
@@ -54,7 +56,7 @@ class FeaturesTest {
         val prefs=context.getSharedPreferences("backup-validation",0)
         prefs.edit().clear().putInt("wallpaper_dim",65).commit()
         val good=LauncherBackup.export(prefs,false).toString(Charsets.UTF_8)
-        for ((key,value) in listOf("text_scale" to 300,"eco_mode" to "true","tv_background_input" to "unsafe",
+        for ((key,value) in listOf("text_scale" to 300,LauncherPalettes.PREF to 3,"eco_mode" to "true","tv_background_input" to "unsafe",
             "updater.url" to "https://invalid.example", "hidden_apps" to JSONArray(listOf("sample.one","sample.one")))) {
             val root=JSONObject(good);root.getJSONObject("preferences").put(key,value)
             invalid { LauncherBackup.parse(root.toString().toByteArray()) }
@@ -62,6 +64,19 @@ class FeaturesTest {
         }
         invalid { LauncherBackup.parse(JSONObject(good).put("schema",1.5).toString().toByteArray()) }
         invalid { LauncherBackup.read(java.io.ByteArrayInputStream(ByteArray(LauncherBackup.MAX_BYTES+1))) }
+        prefs.edit().clear().commit()
+    }
+
+    @Test fun testBackupsMadeBeforeColorThemesRestoreToAuroraWithoutLosingPreferences() {
+        val prefs=context.getSharedPreferences("backup-legacy-theme",0)
+        prefs.edit().clear().putInt("wallpaper_dim",65).putBoolean("eco_mode",true).commit()
+        val root=JSONObject(LauncherBackup.export(prefs,false).toString(Charsets.UTF_8))
+        root.getJSONObject("preferences").remove(LauncherPalettes.PREF)
+        val legacy=LauncherBackup.parse(root.toString().toByteArray())
+        prefs.edit().putInt(LauncherPalettes.PREF,2).putInt("wallpaper_dim",20).commit()
+        LauncherBackup.restore(prefs,legacy)
+        assertEquals(0,prefs.getInt(LauncherPalettes.PREF,-1))
+        assertEquals(65,prefs.getInt("wallpaper_dim",0));assertTrue(prefs.getBoolean("eco_mode",false))
         prefs.edit().clear().commit()
     }
 

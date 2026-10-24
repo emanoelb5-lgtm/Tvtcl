@@ -47,7 +47,7 @@ class MainActivity : Activity() {
     private val prefs by lazy { getSharedPreferences("launcher", MODE_PRIVATE) }
     private val lowMemory by lazy { (getSystemService(ACTIVITY_SERVICE) as ActivityManager).isLowRamDevice }
     private fun economy() = prefs.getBoolean("eco_mode", lowMemory)
-    private val ui by lazy { TvStyle(this, ::economy, { prefs.getInt("text_scale",100) / 100f }, { safeHorizontal() to safeVertical() }) }
+    private val ui by lazy { TvStyle(this, ::economy, { prefs.getInt("text_scale",100) / 100f }, { safeHorizontal() to safeVertical() }, { prefs.getInt(LauncherPalettes.PREF,0) }) }
     private val artwork by lazy { AppArtwork(applicationContext) }
     private val scanner = Executors.newSingleThreadExecutor { r -> Thread({ android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND); r.run() },"tv-app-catalog") }
     private lateinit var frame: FrameLayout
@@ -177,6 +177,7 @@ class MainActivity : Activity() {
             when (reopenPanel) {
                 "display" -> showDisplaySettings(reopenFocus)
                 "backup" -> showBackup()
+                "appearance" -> showPreferences(reopenFocus)
             }
             reopenPanel = ""; reopenFocus = ""
             if(intent?.action == MediaReminders.ACTION_OPEN) intent.getStringExtra("reminder_id")?.let { mediaHub?.showReminder(it) }
@@ -330,26 +331,26 @@ class MainActivity : Activity() {
             setPadding(dp(safeHorizontal()), dp(10), dp(safeHorizontal()), dp(10))
             elevation = dp(4).toFloat()
             background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                intArrayOf(Color.rgb(8, 17, 27), Color.argb(240, 8, 17, 27)))
+                intArrayOf(ui.mix(ui.base,ui.panelColor,.65f),ui.base))
         }
-        homeLayer.addView(nav,lp(-1,ui.height(76)))
+        homeLayer.addView(nav,lp(-1,ui.height(64)))
         val climate = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-        weatherIcon = ImageView(this).apply { setImageDrawable(TvIcon(TvIcon.Kind.CLOUD, ui.accent)) }
-        climate.addView(weatherIcon,lp(dp(30),dp(30),0,0,12))
+        weatherIcon = ui.iconBadge(TvIcon.Kind.CLOUD,34)
+        climate.addView(weatherIcon,lp(dp(34),dp(34),0,0,10))
         val climateText = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        climateText.addView(ui.text("Garrafão do Norte",12f,ui.muted).apply { maxLines = 1 })
-        weatherLabel = ui.text("Clima indisponível",14f,medium=true).apply {
+        climateText.addView(ui.text("Garrafão do Norte",10.5f,ui.muted).apply { maxLines = 1 })
+        weatherLabel = ui.text("Clima indisponível",13f,medium=true).apply {
             tag = "header:weather"; maxLines = 1; ellipsize = TextUtils.TruncateAt.END
         }
         climateText.addView(weatherLabel,lp(-1,-2,0,3))
-        climate.addView(climateText,lp(dp(184),-2))
-        nav.addView(climate,lp(dp(230),-2))
-        nav.addView(View(this).apply { setBackgroundColor(Color.argb(55,190,215,227)) },lp(dp(1),dp(30),14,0,20))
+        climate.addView(climateText,LinearLayout.LayoutParams(0,-2,1f))
+        nav.addView(climate,lp(dp(205),-2))
+        nav.addView(View(this).apply { setBackgroundColor(ui.alpha(ui.accent,42)) },lp(dp(1),dp(27),12,0,18))
         val clock = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-        timeLabel = ui.text("--:--",26f,medium=true).apply { tag = "header:time"; maxLines = 1 }
-        dateLabel = ui.text("",11.5f,ui.muted).apply { tag = "header:date"; maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
+        timeLabel = ui.text("--:--",30f,medium=true).apply { tag = "header:time"; maxLines = 1; fontFeatureSettings="tnum";letterSpacing=-.025f }
+        dateLabel = ui.text("",10.5f,ui.muted).apply { tag = "header:date"; maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
         clock.addView(timeLabel)
-        clock.addView(dateLabel,lp(-2,-2,12))
+        clock.addView(dateLabel,LinearLayout.LayoutParams(0,-2,1f).apply { leftMargin=dp(12) })
         nav.addView(clock,LinearLayout.LayoutParams(0,-2,1f))
         networkLabel = ui.text("Rede",11f)
         networkIcon = ImageView(this)
@@ -375,10 +376,9 @@ class MainActivity : Activity() {
         }
         listScroll.addView(column)
         listScroll.viewTreeObserver.addOnScrollChangedListener { requestArtworkUpdate();mediaHub?.refreshVisible() }
-        val sceneSpace = ((resources.configuration.screenHeightDp-480)*.25f).toInt().coerceIn(12,60)
+        val sceneSpace = ((resources.configuration.screenHeightDp-480)*.12f).toInt().coerceIn(8,28)
         column.addView(View(this),lp(-1,dp(sceneSpace)))
         shortcutArea = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        shortcutArea.addView(section("TV e entradas", "Segure OK para organizar"), lp(-1,ui.height(27),0,0,3,6))
         val sourcesScroll = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER
             clipChildren = false; clipToPadding = false
@@ -386,11 +386,11 @@ class MainActivity : Activity() {
         shortcutStrip = LinearLayout(this).apply { setPadding(dp(4),dp(4),dp(4),dp(4)); clipChildren = false }
         sourcesScroll.addView(shortcutStrip)
         shortcutArea.addView(sourcesScroll,lp(-1,-2))
-        column.addView(shortcutArea,lp(-1,-2,0,0,0,14))
+        column.addView(shortcutArea,lp(-1,-2,0,0,0,8))
         renderShortcuts()
         val usedHeader = section("Mais utilizados","Pelo seu uso")
         orderLabel = (usedHeader as LinearLayout).getChildAt(1) as TextView
-        column.addView(usedHeader,lp(-1,ui.height(28),0,0,3,6))
+        column.addView(usedHeader,lp(-1,ui.height(26),0,0,3,5))
         favoriteStrip = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER
             clipChildren = false; clipToPadding = false
@@ -400,12 +400,12 @@ class MainActivity : Activity() {
             setPadding(dp(4),dp(5),dp(4),dp(5))
         }
         favoriteStrip.addView(favorites)
-        column.addView(favoriteStrip,lp(-1,-2,0,0,0,16))
+        column.addView(favoriteStrip,lp(-1,-2,0,0,0,10))
         val mediaArea=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;clipChildren=false;clipToPadding=false }
-        column.addView(mediaArea,lp(-1,-2,0,0,0,16))
+        column.addView(mediaArea,lp(-1,-2,0,0,0,10))
         val appHeader = section("Seus aplicativos","")
         appCount = (appHeader as LinearLayout).getChildAt(1) as TextView
-        column.addView(appHeader,lp(-1,ui.height(27),0,0,3,6))
+        column.addView(appHeader,lp(-1,ui.height(26),0,0,3,5))
         appGrid = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; clipChildren = false; clipToPadding = false
             setPadding(dp(4),dp(4),dp(4),dp(5))
@@ -417,7 +417,7 @@ class MainActivity : Activity() {
         footer.addView(controlHint,
             LinearLayout.LayoutParams(0,-2,1f))
         footer.addView(ui.text("MENU  Central de ações",9.5f,ui.muted))
-        homeLayer.addView(footer,lp(-1,ui.height(27),safeHorizontal()+4,0,safeHorizontal()+4,5))
+        homeLayer.addView(footer,lp(-1,ui.height(24),safeHorizontal()+4,0,safeHorizontal()+4,4))
         mediaHub=MediaHub(this,ui,prefs,
             { mediaApps.filterNot { it.packageName in hiddenApps() }.map { MediaApp(it.name,it.packageName) } },
             { title,subtitle,back->newPanel(title,subtitle,back).also { activePanel="media" } },
@@ -430,8 +430,14 @@ class MainActivity : Activity() {
 
     private fun section(title: String,meta: String): View = LinearLayout(this).apply {
         gravity = Gravity.CENTER_VERTICAL
-        addView(ui.text(title,18f,medium=true),LinearLayout.LayoutParams(0,-2,1f))
-        addView(ui.text(meta,10.5f,ui.muted))
+        addView(ui.text(title,17f,medium=true).apply {
+            val marker=ui.surface(ui.accent,2).apply { setBounds(0,0,dp(3),dp(14)) }
+            setCompoundDrawables(marker,null,null,null);compoundDrawablePadding=dp(9)
+        },LinearLayout.LayoutParams(0,-2,1f))
+        addView(ui.text(meta,9.5f,ui.muted).apply {
+            background=ui.surface(ui.alpha(ui.panelColor,215),6,ui.alpha(ui.accent,24))
+            setPadding(dp(8),dp(4),dp(8),dp(4))
+        })
     }
 
     private fun navControl(key: String,icon: TvIcon.Kind,label: String,text: TextView,
@@ -471,11 +477,7 @@ class MainActivity : Activity() {
         }
         val artHeight = (widthDp-10)*9/16
         val surface = FrameLayout(this).apply {
-            val shade = (app.packageName.hashCode().ushr(1) % 20)
-            background = GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.rgb(29+shade,42+shade,57+shade),Color.rgb(15,24,36))).apply {
-                cornerRadius = dp(10).toFloat()
-            }
+            background = ui.cardSurface(10)
             clipToOutline = true
         }
         val fallback = ui.text(app.name.take(1).uppercase(locale),27f,ui.muted,true).apply { gravity = Gravity.CENTER }
@@ -485,7 +487,7 @@ class MainActivity : Activity() {
         artworkBindings.add(ArtworkBinding(card,image,fallback,app.component,large))
         if(app.packageName in pinnedApps()) surface.addView(ImageView(this).apply {
             setImageDrawable(TvIcon(TvIcon.Kind.PIN,ui.accent))
-            background = ui.surface(Color.argb(222,7,19,28),6)
+            background = ui.surface(ui.alpha(ui.base,238),6,ui.alpha(ui.accent,45))
             setPadding(dp(4),dp(4),dp(4),dp(4))
         },FrameLayout.LayoutParams(dp(23),dp(23),Gravity.TOP or Gravity.END).apply {
             setMargins(0,dp(5),dp(5),0)
@@ -494,7 +496,7 @@ class MainActivity : Activity() {
         val key = (if(large) "top:" else "grid:") + app.packageName
         styleHome(card,key,true)
         if (moving?.packageName == app.packageName && moving?.lane == (if (large) "top" else "grid")) {
-            card.background = ui.surface(Color.argb(65, 135, 225, 207), 14, ui.accent)
+            card.background = ui.surface(ui.alpha(ui.accent,65), 14, ui.accent)
         }
         card.setOnClickListener { open(app) }
         card.setOnLongClickListener { card.requestFocus(); showAppMenu(app, if (large) "top" else "grid"); true }
@@ -799,7 +801,7 @@ class MainActivity : Activity() {
         state.release?.let { release ->
             sheet.caption("Versão ${release.versionName} · ${Formatter.formatShortFileSize(this, release.size)}")
         }
-        updateStatus = sheet.paragraph(state.message).apply { tag = "update:status" }
+        updateStatus = sheet.notice(state.message,TvIcon.Kind.REFRESH).apply { tag = "update:status" }
         updateProgressBar = if (state.phase in listOf(UpdatePhase.CHECKING, UpdatePhase.DOWNLOADING, UpdatePhase.VERIFYING)) sheet.progress() else null
         applyUpdateProgress(state)
         when (state.phase) {
@@ -920,6 +922,8 @@ class MainActivity : Activity() {
     private fun showPreferences(focus: String? = null) {
         val sheet = newPanel("Personalizar","A aparência da sua tela inicial") { showActionCenter("action:customize") }
         val mode = prefs.getInt("wallpaper_mode",-1)
+        sheet.caption("Aparência")
+        sheet.row(PanelAction("pref:theme","Tema de cores",ui.palette.name+" · "+ui.palette.detail,TvIcon.Kind.PALETTE) { showThemes() })
         sheet.row(PanelAction("pref:display", "Área visível e textos", "Margens da tela e tamanho das letras", TvIcon.Kind.SIZE) { showDisplaySettings() })
         sheet.row(PanelAction("pref:tv-background", "TV ao fundo · Experimental", "Teste opcional com entradas de vídeo", TvIcon.Kind.TV) { showBackgroundSettings() })
         sheet.row(PanelAction("pref:wallpaper","Papel de parede",when(mode) {
@@ -954,6 +958,19 @@ class MainActivity : Activity() {
         sheet.focusAction(focus)
     }
 
+    private fun showThemes() {
+        val sheet=newPanel("Tema de cores","Uma nova atmosfera, com a mesma agilidade") { showPreferences("pref:theme") }
+        sheet.notice("As cores mudam os painéis, os ícones e o destaque do foco. Seu papel de parede e a organização são preservados.",TvIcon.Kind.PALETTE)
+        LauncherPalettes.values.forEachIndexed { index,palette ->
+            sheet.row(PanelAction("theme:$index",palette.name,palette.detail,TvIcon.Kind.PALETTE,
+                prefs.getInt(LauncherPalettes.PREF,0)==index,palette.accent) {
+                prefs.edit().putInt(LauncherPalettes.PREF,index).apply()
+                recreateFeature("appearance","pref:theme")
+            })
+        }
+        sheet.focusAction("theme:"+prefs.getInt(LauncherPalettes.PREF,0).coerceIn(0,2))
+    }
+
     private fun choose(title: String,labels: Array<String>,key: String,values: IntArray,returnKey: String) {
         val sheet = newPanel(title,"Escolha pelo controle e confirme com OK") { showPreferences(returnKey) }
         val current = prefs.getInt(key,when(key) {
@@ -984,8 +1001,8 @@ class MainActivity : Activity() {
         val sheet = newPanel("Conexão de rede", "Estado informado pelo Android") { showActionCenter("action:wifi") }
         activePanel = "network"
         sheet.caption(status.connection)
-        sheet.paragraph(status.internet).tag = "network:status"
-        sheet.paragraph("IP da TV: ${status.address}").tag = "network:address"
+        sheet.notice(status.internet,TvIcon.Kind.WIFI).tag = "network:status"
+        sheet.notice("IP da TV: ${status.address}",TvIcon.Kind.INFO).tag = "network:address"
         if (status.connected && status.ipv4.isEmpty() && status.ipv6.isEmpty())
             sheet.paragraph("A rede ainda não informou um endereço para a TV.")
         if (status.ipv4.isNotEmpty() || status.ipv6.isNotEmpty()) sheet.row(PanelAction("network:copy", "Copiar IP da TV", status.address, TvIcon.Kind.INFO) {
@@ -1018,15 +1035,15 @@ class MainActivity : Activity() {
         shortcutArea.visibility = if (entries.isEmpty()) View.GONE else View.VISIBLE
         for (entry in entries) {
             val card = LinearLayout(this).apply {
-                gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12),dp(8),dp(12),dp(8))
+                gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12),dp(7),dp(12),dp(7))
                 contentDescription = entry.label(videoInputs) + ". Segure OK para organizar."
-                addView(ImageView(context).apply { setImageDrawable(TvIcon(if(entry.key == "tv") TvIcon.Kind.TV else TvIcon.Kind.CABLE, ui.accent)) },lp(dp(22),dp(22),0,0,10))
+                addView(ImageView(context).apply { setImageDrawable(TvIcon(if(entry.key == "tv") TvIcon.Kind.TV else TvIcon.Kind.CABLE, ui.accent)) },lp(dp(20),dp(20),0,0,10))
                 addView(ui.text(entry.label(videoInputs),12f,medium=true).apply { maxLines=1; ellipsize=TextUtils.TruncateAt.END },lp(0,-2).apply { weight=1f })
             }
             styleHome(card,"shortcut:" + entry.key)
             card.setOnClickListener { openShortcut(entry) }
             card.setOnLongClickListener { card.requestFocus(); showShortcutOptions(entry); true }
-            shortcutViews.add(card); shortcutStrip.addView(card,lp(dp(166),ui.height(49),0,0,10))
+            shortcutViews.add(card); shortcutStrip.addView(card,lp(dp(166),ui.height(40),0,0,10))
         }
         wireNavigation(when(prefs.getInt("icon_scale",1)) { 0 -> 6; 2 -> 4; else -> 5 })
         if (panel == null && focused?.startsWith("shortcut:") == true)
@@ -1143,7 +1160,7 @@ class MainActivity : Activity() {
     private fun showBackup() {
         val sheet=newPanel("Backup local","Organização e aparência do seu launcher") { showActionCenter("action:backup") }
         activePanel="backup"
-        sheet.paragraph(backupMessage).tag="backup:status"
+        sheet.notice(backupMessage,TvIcon.Kind.STORAGE).tag="backup:status"
         importedBackup?.let { data -> sheet.row(PanelAction("backup:review","Revisar backup selecionado",data.summary,TvIcon.Kind.INFO) { showBackupPreview(data) }) }
         sheet.row(PanelAction("backup:save","Salvar cópia nesta TV","Guardar a configuração atual",TvIcon.Kind.STORAGE) {
             backupWork({

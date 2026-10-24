@@ -12,6 +12,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.database.ContentObserver
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.media.tv.TvContract
 import android.os.Build
 import android.os.CancellationSignal
@@ -153,9 +154,9 @@ internal class MediaHub(private val activity: Activity, private val ui: TvStyle,
         area.visibility=View.VISIBLE
         fun caption(title: String,detail: String) {
             val row=LinearLayout(activity).apply { gravity=Gravity.CENTER_VERTICAL }
-            row.addView(ui.text(title,18f,medium=true),LinearLayout.LayoutParams(0,-2,1f))
-            row.addView(ui.text(detail,10f,ui.muted).apply { maxLines=1;ellipsize=TextUtils.TruncateAt.END })
-            area.addView(row,LinearLayout.LayoutParams(-1,ui.height(28)).apply { topMargin=ui.dp(8);bottomMargin=ui.dp(7) })
+            row.addView(ui.text(title,16f,medium=true),LinearLayout.LayoutParams(0,-2,1f))
+            row.addView(ui.text(detail,9.5f,ui.quiet).apply { maxLines=1;ellipsize=TextUtils.TruncateAt.END })
+            area.addView(row,LinearLayout.LayoutParams(-1,ui.height(22)).apply { bottomMargin=ui.dp(4) })
         }
         caption("Multimídia","Seu conteúdo, seus aplicativos")
         val quick=LinearLayout(activity).apply { clipChildren=false;setPadding(ui.dp(4),ui.dp(4),ui.dp(4),ui.dp(4)) }
@@ -164,14 +165,14 @@ internal class MediaHub(private val activity: Activity, private val ui: TvStyle,
             Triple("guide","Programação",TvIcon.Kind.CALENDAR),Triple("now","Reproduzindo",TvIcon.Kind.PLAY))
         actions.forEachIndexed { index,(key,title,icon) ->
             val button=LinearLayout(activity).apply { gravity=Gravity.CENTER;contentDescription=title }
-            button.addView(ImageView(activity).apply { setImageDrawable(TvIcon(icon,ui.accent)) },LinearLayout.LayoutParams(ui.dp(20),ui.dp(20)).apply { rightMargin=ui.dp(8) })
-            button.addView(ui.text(title,12f,medium=true).apply { maxLines=1;ellipsize=TextUtils.TruncateAt.END },LinearLayout.LayoutParams(-2,-2))
+            button.addView(ImageView(activity).apply { setImageDrawable(TvIcon(icon,ui.accent)) },LinearLayout.LayoutParams(ui.dp(18),ui.dp(18)).apply { rightMargin=ui.dp(8) })
+            button.addView(ui.text(title,11.5f,medium=true).apply { maxLines=1;ellipsize=TextUtils.TruncateAt.END },LinearLayout.LayoutParams(-2,-2))
             styleHome(button,"media-home:"+key)
             button.setOnClickListener { when(key) { "search"->showSearch();"list"->showList();"guide"->showGuide();else->showNow() } }
-            quick.addView(button,LinearLayout.LayoutParams(0,ui.height(49),1f).apply { if(index<3) rightMargin=ui.dp(8) });controls.add(button)
+            quick.addView(button,LinearLayout.LayoutParams(0,ui.height(40),1f).apply { if(index<3) rightMargin=ui.dp(8) });controls.add(button)
         }
         area.addView(quick);homeRows.add(controls)
-        fun cards(title: String,entries: List<MediaEntry>,detail:(MediaEntry)->String) {
+        fun cards(title: String,entries: List<MediaEntry>,progress:(MediaEntry)->Int?={null},detail:(MediaEntry)->String) {
             if(entries.isEmpty()) return
             caption(title,"Segure OK para ver opções")
             val scroll=HorizontalScrollView(activity).apply { isHorizontalScrollBarEnabled=false;overScrollMode=View.OVER_SCROLL_NEVER;clipChildren=false;clipToPadding=false }
@@ -179,11 +180,29 @@ internal class MediaHub(private val activity: Activity, private val ui: TvStyle,
             val views=ArrayList<View>()
             entries.forEach { entry ->
                 val card=LinearLayout(activity).apply { orientation=LinearLayout.VERTICAL;setPadding(ui.dp(7),ui.dp(7),ui.dp(7),ui.dp(8));contentDescription=entry.title+". "+detail(entry) }
-                val cover=FrameLayout(activity).apply { background=ui.surface(Color.rgb(17,32,46),10);clipToOutline=true }
-                val placeholder=ImageView(activity).apply { setPadding(ui.dp(28),ui.dp(28),ui.dp(28),ui.dp(28));setImageDrawable(TvIcon(if(entry.kind=="channel")TvIcon.Kind.TV else TvIcon.Kind.PLAY,ui.muted)) }
+                val cover=FrameLayout(activity).apply { background=ui.cardSurface(10);clipToOutline=true }
+                val placeholder=ImageView(activity).apply { setPadding(ui.dp(28),ui.dp(28),ui.dp(28),ui.dp(28));setImageDrawable(TvIcon(if(entry.kind=="channel")TvIcon.Kind.TV else TvIcon.Kind.PLAY,ui.accent)) }
                 cover.addView(placeholder,FrameLayout.LayoutParams(-1,-1))
                 val image=ImageView(activity).apply { scaleType=ImageView.ScaleType.CENTER_CROP;importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO }
                 cover.addView(image,FrameLayout.LayoutParams(-1,-1));art.bind(image,placeholder,entry.cover)
+                cover.addView(View(activity).apply {
+                    background=GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,intArrayOf(Color.TRANSPARENT,ui.alpha(ui.base,190)))
+                    importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                },FrameLayout.LayoutParams(-1,ui.dp(42),Gravity.BOTTOM))
+                cover.addView(ui.text(entry.kindLabel,8.5f,ui.ink,true).apply {
+                    background=ui.surface(ui.alpha(ui.base,225),5,ui.alpha(ui.accent,40));setPadding(ui.dp(6),ui.dp(4),ui.dp(6),ui.dp(4))
+                    importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                },FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM or Gravity.START).apply { leftMargin=ui.dp(7);bottomMargin=ui.dp(7) })
+                progress(entry)?.let { percent ->
+                    val track=FrameLayout(activity).apply { setBackgroundColor(ui.alpha(ui.ink,45));importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO }
+                    val fill=View(activity).apply { setBackgroundColor(ui.accent) }
+                    track.addView(fill,FrameLayout.LayoutParams(0,-1))
+                    track.addOnLayoutChangeListener { _,left,_,right,_,_,_,_,_ ->
+                        val desired=((right-left)*percent.coerceIn(0,100)/100f).toInt()
+                        if(fill.layoutParams.width!=desired) fill.layoutParams=fill.layoutParams.apply { width=desired }
+                    }
+                    cover.addView(track,FrameLayout.LayoutParams(-1,ui.dp(3),Gravity.BOTTOM))
+                }
                 card.addView(cover,LinearLayout.LayoutParams(-1,ui.dp(93)))
                 card.addView(ui.text(entry.title,12f,medium=true).apply { maxLines=2;ellipsize=TextUtils.TruncateAt.END },LinearLayout.LayoutParams(-1,ui.height(34)).apply { topMargin=ui.dp(8) })
                 card.addView(ui.text(detail(entry),10f,ui.muted).apply { maxLines=1;ellipsize=TextUtils.TruncateAt.END })
@@ -194,7 +213,8 @@ internal class MediaHub(private val activity: Activity, private val ui: TvStyle,
             }
             scroll.addView(row);area.addView(scroll);homeRows.add(views)
         }
-        if(prefs.getBoolean("media.continue",true)) cards("Continuar assistindo",shown.map { it.entry }) { entry->shown.first { it.entry.id==entry.id }.progressLabel }
+        if(prefs.getBoolean("media.continue",true)) cards("Continuar assistindo",shown.map { it.entry },
+            { entry->shown.firstOrNull { it.entry.id==entry.id && it.duration>0 }?.percent }) { entry->shown.first { it.entry.id==entry.id }.progressLabel }
         if(prefs.getBoolean("media.list",true)) cards("Minha lista",saved) { it.kindLabel }
         homeChanged()
         area.post { if(!closed) { art.refreshVisible();if(!isOpen() && keep?.startsWith("media-home:") == true) homeRows.flatten().firstOrNull { it.tag==keep }?.requestFocus() } }
@@ -217,13 +237,13 @@ internal class MediaHub(private val activity: Activity, private val ui: TvStyle,
         val s=sheet("Minha lista","Filmes, séries, canais e links","list") { show("media:list") }
         s.action("media-list:add","Adicionar à lista","Escolher título e aplicativo",TvIcon.Kind.PIN) { editNewEntry() }
         val entries=library()
-        if(entries.isEmpty()) s.paragraph("Guarde aqui o que você quer assistir. Sua lista é local e pode ser incluída no backup do launcher.")
+        if(entries.isEmpty()) s.notice("Guarde aqui o que você quer assistir. Sua lista é local e pode ser incluída no backup do launcher.",TvIcon.Kind.PIN)
         entries.forEach { entry->s.action("media-list:"+entry.id,entry.title,entry.kindLabel+if(entry.packageName.isNotEmpty()) " · "+label(entry.packageName) else "") { showEntry(entry) } }
         s.focusAction(focus)
     }
     fun showWatch(focus: String?=null) {
         val s=sheet("Continuar assistindo","Conteúdo compartilhado pelos aplicativos","watch") { show("media:watch") }
-        s.paragraph(watch.message)
+        s.notice(watch.message,TvIcon.Kind.PLAY)
         tvPermissionAction(s,"watch:permission")
         watch.items.forEach { item->s.action("watch:"+item.entry.id,item.entry.title,item.progressLabel+" · "+label(item.entry.packageName),TvIcon.Kind.PLAY) { showEntry(item.entry) } }
         s.action("watch:refresh","Atualizar","Consultar os aplicativos novamente",TvIcon.Kind.REFRESH) { refreshWatch() }
@@ -343,7 +363,7 @@ internal class MediaHub(private val activity: Activity, private val ui: TvStyle,
 
     fun showGuide(focus: String?=null) {
         val s=sheet("Programação","Agora e a seguir","guide") { show("media:guide") }
-        s.paragraph(guide.message)
+        s.notice(guide.message,TvIcon.Kind.CALENDAR)
         tvPermissionAction(s,"media-guide:permission")
         s.action("media-guide:native","Abrir guia da TV","Consultar a programação no aplicativo da TV",TvIcon.Kind.TV) {
             if(!launch(Intent(Intent.ACTION_VIEW,TvContract.Programs.CONTENT_URI))) openTv()
@@ -420,7 +440,7 @@ internal class MediaHub(private val activity: Activity, private val ui: TvStyle,
             }
         }
         val entries=MediaReminders.read(activity).sortedBy { it.startsAt }
-        if(entries.isEmpty()) s.paragraph("Marque os programas que você quer acompanhar. O aviso é agendado para até cinco minutos antes; a TV precisa estar ligada ou permitir avisos em espera.")
+        if(entries.isEmpty()) s.notice("Marque os programas que você quer acompanhar. O aviso é agendado para até cinco minutos antes; a TV precisa estar ligada ou permitir avisos em espera.",TvIcon.Kind.BELL)
         entries.forEach { reminder->s.action("media-reminder:"+reminder.id,reminder.entry.title,dateTime(reminder.startsAt)+
             if(reminder.fired || reminder.startsAt<=System.currentTimeMillis()) " · Horário atingido" else " · Agendado",TvIcon.Kind.BELL) { showReminder(reminder.id) } }
         s.focusAction(focus)
@@ -467,7 +487,7 @@ internal class MediaHub(private val activity: Activity, private val ui: TvStyle,
     fun showNow(focus: String?=null) {
         val s=sheet("Reproduzindo agora","Controles do aplicativo de mídia","now") { show("media:now") }
         val info=playback.info
-        s.paragraph(info.title).tag="media-now:title";s.paragraph(info.detail)
+        s.notice(info.title,TvIcon.Kind.PLAY).tag="media-now:title";s.paragraph(info.detail)
         if(info.owner.isNotEmpty()) {
             s.caption(label(info.owner))
             if(info.playing && info.canPause || !info.playing && info.canPlay)
