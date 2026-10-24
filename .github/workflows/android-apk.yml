@@ -2,7 +2,7 @@ name: Compilar e publicar TCL Light
 
 on:
   push:
-    branches: [main, multimedia-v010, signed-releases]
+    branches: [main, visual-v011, signed-releases]
   workflow_dispatch:
 
 concurrency:

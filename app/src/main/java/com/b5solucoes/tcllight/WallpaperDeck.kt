@@ -53,12 +53,15 @@ internal class WallpaperDeck(context: Context, private val prefs: SharedPreferen
         val mode = prefs.getInt("wallpaper_mode",-1)
         val selected = if(mode in photos.indices) mode else index
         val dim = prefs.getInt("wallpaper_dim",50).coerceIn(20,80)/100f
+        val base=LauncherPalettes.get(prefs.getInt(LauncherPalettes.PREF,0)).base
+        setBackgroundColor(base)
+        fun tint(alpha: Int)=Color.argb(alpha,Color.red(base),Color.green(base),Color.blue(base))
         veil.background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,intArrayOf(
-            Color.argb((255*(.30f+dim*.35f)).toInt(),3,9,17),
-            Color.argb((255*(.18f+dim*.58f)).toInt(),3,9,17),
-            Color.argb((255*(.83f+dim*.16f)).toInt(),4,9,16)))
+            tint((255*(.30f+dim*.35f)).toInt()),
+            tint((255*(.18f+dim*.58f)).toInt()),
+            tint((255*(.83f+dim*.16f)).toInt())))
         sideVeil.background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(
-            Color.argb(58,3,9,17),Color.TRANSPARENT,Color.argb(12,3,9,17)))
+            tint(58),Color.TRANSPARENT,tint(12)))
         if(mode == 5) {
             front.setImageDrawable(null); back.setImageDrawable(null); loadedIndex = -1
         } else if(loadedIndex != selected) decode(selected,false)

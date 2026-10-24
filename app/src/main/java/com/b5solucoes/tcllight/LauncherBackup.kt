@@ -22,9 +22,9 @@ internal object LauncherBackup {
         "wallpaper_mode" to setOf(-1,0,1,2,3,4,5), "wallpaper_dim" to setOf(20,35,50,65),
         "icon_scale" to setOf(0,1,2), "top_count" to setOf(5,7,10),
         "safe_horizontal" to setOf(24,42,56,72), "safe_vertical" to setOf(0,8,16,24),
-        "text_scale" to setOf(100,110,120))
+        "text_scale" to setOf(100,110,120),LauncherPalettes.PREF to setOf(0,1,2))
     private val defaults = mapOf("wallpaper_mode" to -1, "wallpaper_dim" to 50, "icon_scale" to 1,
-        "top_count" to 7, "safe_horizontal" to 42, "safe_vertical" to 8, "text_scale" to 100)
+        "top_count" to 7, "safe_horizontal" to 42, "safe_vertical" to 8, "text_scale" to 100,LauncherPalettes.PREF to 0)
     private val sets = setOf("hidden_apps", "pinned_apps")
     private val mediaFlags=setOf("media.home","media.continue","media.list")
     private val orders = setOf("order.top", "order.grid")
@@ -97,6 +97,8 @@ internal object LauncherBackup {
                 else -> { require(validPackage(key.removePrefix("usage.time.")) && (value is Long || value is Int) && (value as Number).toLong() >= 0); result[key] = (value as Number).toLong() }
             }
         }
+        // Schema 1 exports made before color themes remain valid.
+        if(LauncherPalettes.PREF !in result) result[LauncherPalettes.PREF]=0
         require(ints.keys.all { it in result } && "eco_mode" in result && HomeShortcuts.PREF in result && sets.all { it in result } && orders.all { it in result })
         BackupData(result)
     } catch (_: Exception) { throw BackupFailure() }
