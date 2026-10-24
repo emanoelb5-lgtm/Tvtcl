@@ -37,17 +37,32 @@ class LauncherNavigationTest {
     private lateinit var scenario: ActivityScenario<MainActivity>
     private lateinit var screen: MainActivity
     private val fixture get() = instrumentation.context.packageName
+    private lateinit var uiUpdates:AppUpdates
+    private var updateCode=BuildConfig.VERSION_CODE
 
     @Before fun setUp() {
         instrumentation.targetContext.getSharedPreferences("launcher",Context.MODE_PRIVATE)
             .edit().clear().commit()
+        updateCode=BuildConfig.VERSION_CODE
+        val updatePrefs=instrumentation.targetContext.getSharedPreferences("ui-test-updates",0)
+        updatePrefs.edit().clear().commit()
+        uiUpdates=AppUpdates(instrumentation.targetContext,object:UpdateTransport {
+            override fun open(url:String):UpdateStream {
+                val bytes=DiscoveryFixtures.feed(updateCode).toByteArray()
+                return UpdateStream(java.io.ByteArrayInputStream(bytes),bytes.size.toLong())
+            }
+        },{InstalledUpdateApp(UpdatePolicy.PACKAGE,BuildConfig.VERSION_CODE.toLong(),UpdatePolicy.CERTIFICATE)},updatePrefs)
+        AppUpdates::class.java.getDeclaredField("shared").apply { isAccessible=true }.set(null,uiUpdates)
         instrumentation.setInTouchMode(false)
         scenario = ActivityScenario.launch(MainActivity::class.java)
         scenario.onActivity { screen = it }
         await { find("grid:"+fixture) != null }
     }
 
-    @After fun tearDown() { scenario.close() }
+    @After fun tearDown() {
+        scenario.close();onUi { uiUpdates.close() }
+        AppUpdates::class.java.getDeclaredField("shared").apply { isAccessible=true }.set(null,null)
+    }
 
     private fun <T> onUi(block: () -> T): T {
         if(Looper.myLooper() == Looper.getMainLooper()) return block()
@@ -80,6 +95,20 @@ class LauncherNavigationTest {
         assertNotNull("Ação ausente: "+tag,target)
         onUi { target!!.requestFocus() }
         key(KeyEvent.KEYCODE_DPAD_CENTER)
+    }
+
+    private fun openMedia(tag:String) {
+        if(find("launcher-panel")!=null) key(KeyEvent.KEYCODE_MENU)
+        key(KeyEvent.KEYCODE_MENU);click("action:media");click(tag)
+    }
+
+    private fun fixtureSearch() {
+        onUi {
+            val hub=MainActivity::class.java.getDeclaredField("mediaHub").apply { isAccessible=true }.get(screen) as MediaHub
+            val field=MediaHub::class.java.getDeclaredField("online").apply { isAccessible=true }
+            (field.get(hub) as StreamingSearch).close()
+            field.set(hub,StreamingSearch(object:CatalogTransport { override fun read(query:String)=DiscoveryFixtures.page(query) }))
+        }
     }
 
     private val samples get() = listOf("sample.files", "sample.video", "sample.music")
@@ -180,6 +209,55 @@ class LauncherNavigationTest {
         assertNull(find("launcher-panel"))
     }
 
+    @Test fun testAutomaticUpdateBadgeAppearsPersistsAndLeavesNavigationWhenCurrent() {
+        updateCode=BuildConfig.VERSION_CODE+1
+        onUi { uiUpdates.check() }
+        await { find("nav:update")?.visibility==View.VISIBLE }
+        click("nav:update");assertNotNull(find("update:download"))
+        key(KeyEvent.KEYCODE_MENU);assertTrue(find("nav:update")!!.hasFocus())
+        assertTrue(find("nav:update")!!.contentDescription.toString().contains("0.99.0"))
+        updateCode=BuildConfig.VERSION_CODE;onUi { uiUpdates.check() }
+        await { find("nav:update")?.visibility==View.GONE }
+        assertTrue(find("nav:search")!!.hasFocus())
+        repeat(8) { key(KeyEvent.KEYCODE_DPAD_RIGHT);assertFalse(find("nav:update")!!.hasFocus()) }
+    }
+
+    @Test fun testRemoteKeyboardFindsServicesAndOpensTheExactExternalTitleLink() {
+        fixtureSearch();click("nav:search")
+        await { find("search-key:A")?.hasFocus()==true }
+        for(ch in "MATRIX") click("search-key:$ch")
+        click("search-key:space");click("search-key:2");click("search-key:backspace");click("search-key:backspace")
+        assertEquals("MATRIX",onUi { (find("media-search:query") as android.widget.EditText).text.toString() })
+        click("media-search:submit")
+        await { find("stream-title:tm1")!=null }
+        onUi {
+            val card=find("stream-title:tm1") as ViewGroup;val cover=card.getChildAt(0)
+            assertEquals(16f/9f,cover.width.toFloat()/cover.height,.02f)
+        }
+        click("stream-title:tm1");assertNotNull(find("stream-offer:0"));assertNotNull(find("stream-offer:1"))
+        click("stream-offer:0")
+        await { nativeNode { it.packageName?.toString()==fixture && it.text?.toString()=="Conteúdo: https://stream.example.org/title/matrix" }!=null }
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand("input keyevent 4")).use { it.readBytes() }
+        await { onUi { screen.hasWindowFocus() } }
+        key(KeyEvent.KEYCODE_BACK);await { find("stream-title:tm1")?.hasFocus()==true }
+        key(KeyEvent.KEYCODE_BACK);assertNull(find("launcher-panel"));assertTrue(find("nav:search")!!.hasFocus())
+        assertNull(find("shortcut:tv"));assertTrue(find("nav:tv")!!.height<=onUi { screen.resources.displayMetrics.density*39 })
+    }
+
+    @Test fun testKeyboardAndResultsRemainUsableWithLargeTextAndMaximumSafeMargins() {
+        val prefs=instrumentation.targetContext.getSharedPreferences("launcher",0)
+        prefs.edit().putInt("text_scale",120).putInt("safe_horizontal",72).putInt("safe_vertical",24).commit()
+        scenario.recreate();scenario.onActivity { screen=it };await { find("nav:search")!=null }
+        fixtureSearch();click("nav:search")
+        onUi { (find("media-search:query") as android.widget.EditText).setText("MATRIX") }
+        click("media-search:submit");await { find("stream-title:tm1")!=null }
+        for(tag in listOf("search-key:A","search-key:9","media-search:submit")) onUi {
+            val view=find(tag)!!;val rect=android.graphics.Rect();assertTrue(view.getGlobalVisibleRect(rect));assertEquals(view.height,rect.height())
+        }
+        click("search-key:clear");assertEquals("",onUi { (find("media-search:query") as android.widget.EditText).text.toString() })
+        key(KeyEvent.KEYCODE_BACK);assertTrue(find("nav:search")!!.hasFocus())
+    }
+
     @Test fun testTvShortcutsCanBePinnedMovedAndRemovedByRemote() {
         val id="sample.tv/.Input/HW1"
         onUi {
@@ -189,15 +267,15 @@ class LauncherNavigationTest {
         key(KeyEvent.KEYCODE_MENU);click("action:shortcuts")
         click("shortcut-option:input:"+id)
         key(KeyEvent.KEYCODE_MENU)
-        assertNotNull(find("shortcut:tv"));assertNotNull(find("shortcut:input:"+id))
+        assertEquals(View.VISIBLE,find("nav:tv")!!.visibility);assertNotNull(find("shortcut:input:"+id))
         onUi { find("shortcut:input:"+id)!!.performLongClick() }
         click("shortcut:move:-1")
         val prefs=instrumentation.targetContext.getSharedPreferences("launcher",0)
         assertEquals("input:"+id,HomeShortcuts.decode(prefs.getString(HomeShortcuts.PREF,null)).first().key)
         click("shortcut:remove")
         assertNull(find("shortcut:input:"+id))
-        onUi { find("shortcut:tv")!!.performLongClick() };click("shortcut:remove")
-        assertNull(find("shortcut:tv"))
+        onUi { find("nav:tv")!!.performLongClick() };click("shortcut:remove")
+        assertEquals(View.GONE,find("nav:tv")!!.visibility)
         assertTrue(HomeShortcuts.decode(prefs.getString(HomeShortcuts.PREF,null)).isEmpty())
     }
 
@@ -486,7 +564,7 @@ class LauncherNavigationTest {
     }
 
     @Test fun testMultimediaListCanBeCreatedReorderedRemovedAndRestoredAfterRecreation() {
-        click("media-home:list");click("media-list:add")
+        openMedia("media:list");click("media-list:add")
         enterNativeText("Documentário da Amazônia","Salvar")
         val prefs=instrumentation.targetContext.getSharedPreferences("launcher",0)
         await { MediaLibrary.decode(prefs.getString(MediaLibrary.PREF,null)).size==1 }
@@ -497,17 +575,18 @@ class LauncherNavigationTest {
         val second=MediaEntry(title="Série da semana",kind="series")
         onUi { prefs.edit().putString(MediaLibrary.PREF,MediaLibrary.encode(MediaLibrary.decode(prefs.getString(MediaLibrary.PREF,null))+second)).commit() }
         key(KeyEvent.KEYCODE_MENU)
-        click("media-home:list");click("media-list:"+first.id);click("media-entry:right")
+        openMedia("media:list");click("media-list:"+first.id);click("media-entry:right")
         assertEquals(second.id,MediaLibrary.decode(prefs.getString(MediaLibrary.PREF,null)).first().id)
         scenario.recreate();scenario.onActivity { screen=it }
-        await { find("media-home:list") != null }
-        click("media-home:list");click("media-list:"+first.id);click("media-entry:remove")
+        await { find("nav:search") != null }
+        openMedia("media:list");click("media-list:"+first.id);click("media-entry:remove")
         assertEquals(listOf(second),MediaLibrary.decode(prefs.getString(MediaLibrary.PREF,null)))
     }
 
     @Test fun testStreamingSearchDeliversTheQueryToAnExternalApp() {
-        click("media-home:search");click("media-search:query")
-        enterNativeText("Amazônia","Confirmar")
+        fixtureSearch();click("nav:search")
+        onUi { (find("media-search:query") as android.widget.EditText).setText("Amazônia") }
+        click("media-search:apps")
         click("media-search:app:"+fixture)
         await { nativeNode { it.text?.toString()=="Busca: Amazônia" && it.packageName?.toString()==fixture } != null }
         android.os.ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand("input keyevent 4")).use { it.readBytes() }
@@ -515,7 +594,7 @@ class LauncherNavigationTest {
     }
 
     @Test fun testGuideFallbackAndOptionalPlaybackRemainUsableWithoutSpecialAccess() {
-        click("media-home:guide")
+        openMedia("media:guide")
         await { find("media-guide:native") != null && find("media-guide:manual") != null }
         click("media-guide:manual")
         await { find("media-reminders:manual") != null }
@@ -528,15 +607,39 @@ class LauncherNavigationTest {
     }
 
     @Test fun testMultimediaHomeCanBeDisabledWithoutBreakingRemoteNavigation() {
+        val entry=MediaEntry(title="Filme da minha lista")
+        onUi { instrumentation.targetContext.getSharedPreferences("launcher",0).edit().putString(MediaLibrary.PREF,MediaLibrary.encode(listOf(entry))).commit() }
+        await { find("media-home:Minha lista:"+entry.id)!=null }
         key(KeyEvent.KEYCODE_MENU);click("action:media");click("media:settings")
         click("media-settings:media.home")
-        assertNull(find("media-home:search"))
+        assertNull(find("media-home:Minha lista:"+entry.id))
         key(KeyEvent.KEYCODE_MENU)
         onUi { find("top:"+fixture)!!.requestFocus() }
         key(KeyEvent.KEYCODE_DPAD_DOWN)
         await { find("grid:"+fixture)?.hasFocus()==true }
         key(KeyEvent.KEYCODE_DPAD_UP)
         await { find("top:"+fixture)?.hasFocus()==true }
+    }
+
+    @Test fun testContinueWatchingKeepsItsContentCardsAndMultimediaUsesCoverCards() {
+        val entry=MediaEntry(title="Documentário de teste")
+        await { onUi {
+            val hub=MainActivity::class.java.getDeclaredField("mediaHub").apply { isAccessible=true }.get(screen)
+            !MediaHub::class.java.getDeclaredField("busyWatch").apply { isAccessible=true }.getBoolean(hub)
+        } }
+        onUi {
+            val hub=MainActivity::class.java.getDeclaredField("mediaHub").apply { isAccessible=true }.get(screen) as MediaHub
+            MediaHub::class.java.getDeclaredField("watch").apply { isAccessible=true }.set(hub,WatchCatalog(listOf(WatchItem(entry,600,1200,1))))
+            hub.renderHome()
+        }
+        await { find("media-home:Continuar assistindo:"+entry.id)!=null }
+        assertTrue(find("media-home:Continuar assistindo:"+entry.id)!!.contentDescription.toString().contains("50% assistido"))
+        assertNull(find("media-home:search"));assertNull(find("shortcut:tv"))
+        openMedia("media:settings");key(KeyEvent.KEYCODE_BACK)
+        onUi {
+            val card=find("media:search") as ViewGroup;val cover=card.getChildAt(0)
+            assertEquals(16f/9f,cover.width.toFloat()/cover.height,.02f)
+        }
     }
 
     @Test fun testReminderDetailsCanOpenFromHomeAndBeCancelledByRemote() {
@@ -569,7 +672,10 @@ class LauncherNavigationTest {
         click("action:backup");capture("backup.png");key(KeyEvent.KEYCODE_BACK)
         click("action:media");capture("media-hub.png")
         click("media:list");capture("media-list.png");key(KeyEvent.KEYCODE_BACK)
-        click("media:search");capture("media-search.png");key(KeyEvent.KEYCODE_BACK)
+        click("media:search");fixtureSearch();capture("media-search.png")
+        onUi { (find("media-search:query") as android.widget.EditText).setText("MATRIX") }
+        click("media-search:submit");await { find("stream-title:tm1")!=null };capture("search-results.png")
+        click("stream-title:tm1");capture("search-offers.png");key(KeyEvent.KEYCODE_BACK);key(KeyEvent.KEYCODE_BACK)
         click("media:guide");capture("media-guide.png");key(KeyEvent.KEYCODE_BACK)
         click("media:watch");capture("media-watch.png");key(KeyEvent.KEYCODE_BACK)
         click("media:reminders");capture("media-reminders.png");key(KeyEvent.KEYCODE_BACK)

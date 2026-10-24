@@ -61,7 +61,9 @@ class UpdateFlowTest {
     }
 
     private fun engine(transport: UpdateTransport): AppUpdates =
-        AppUpdates(context, transport) { installed }.also { engines.add(it) }
+        AppUpdates(context, transport,identity={ installed },preferences=context.getSharedPreferences("update-flow-${engines.size}",0).apply {
+            edit().clear().commit()
+        }).also { engines.add(it) }
 
     private fun memoryTransport(metadata: ByteArray = manifest.toString().toByteArray(),
                                 apk: ByteArray = fixture.readBytes()) = object : UpdateTransport {
