@@ -39,11 +39,19 @@ internal data class MediaApp(val name: String,val packageName: String)
 internal class MediaHub(private val activity: Activity, private val ui: TvStyle, private val prefs: SharedPreferences,
     private val apps: ()->List<MediaApp>, private val makePanel:(String,String,()->Unit)->LauncherPanel,
     private val isOpen:()->Boolean, private val backToCentral:()->Unit, private val openTv:()->Unit,
-    private val styleHome:(View,String)->Unit, private val clearHome:()->Unit, private val homeChanged:()->Unit) {
+    private val styleHome:(View,String)->Unit, private val clearHome:()->Unit, private val homeChanged:()->Unit,
+    private val closeSearch:()->Unit) {
     private val handler=Handler(Looper.getMainLooper())
     private val worker=Executors.newSingleThreadExecutor { r->Thread(r,"tv-media-catalog") }
     private val catalog=TvMediaCatalog(activity.applicationContext)
     private val art=MediaArt(activity.applicationContext,handler)
+    private val panelArt=MediaArt(activity.applicationContext,handler)
+    private val online=StreamingSearch()
+    private var searchResult:CatalogResult?=null
+    private var searchLoading=false
+    private var searchWorkspace:TvSearchWorkspace?=null
+    private var headerSearch=false
+    private val searchTyped=Runnable { if(started && isOpen() && screen=="search") renderSearchResults() }
     private val playback=MediaPlayback(activity,handler) { if(started && isOpen() && screen == "now") showNow(focus()) }
     private var home: LinearLayout?=null
     val homeRows=ArrayList<List<View>>()
@@ -97,6 +105,7 @@ internal class MediaHub(private val activity: Activity, private val ui: TvStyle,
         if(isOpen() && screen=="guide") showGuide(focus())
         if(isOpen() && screen == "now") showNow()
         art.start()
+        if(isOpen()) panelArt.start()
     }
     fun stop() {
         started=false;watchAgain=false
@@ -104,12 +113,13 @@ internal class MediaHub(private val activity: Activity, private val ui: TvStyle,
         programBoundary?.let { handler.removeCallbacks(it) };programBoundary=null
         signals.toList().forEach { it.cancel() }
         if(registered) runCatching { activity.contentResolver.unregisterContentObserver(observer) }
-        registered=false;playback.stop();art.stop()
+        registered=false;playback.stop();art.stop();online.cancel();searchLoading=false;panelArt.stop()
     }
-    fun close() { closed=true;stop();prefs.unregisterOnSharedPreferenceChangeListener(prefListener);handler.removeCallbacksAndMessages(null);worker.shutdownNow();art.close() }
-    fun trim()=art.trim()
-    fun refreshVisible()=art.refreshVisible()
-    fun appsChanged() { if(isOpen() && screen == "search") showSearch(focus()) }
+    fun close() { closed=true;stop();prefs.unregisterOnSharedPreferenceChangeListener(prefListener);handler.removeCallbacksAndMessages(null);worker.shutdownNow();art.close();panelArt.close();online.close() }
+    fun trim() { art.trim();panelArt.trim() }
+    fun refreshVisible() { art.refreshVisible();panelArt.refreshVisible() }
+    fun appsChanged() { if(isOpen() && screen == "search") renderSearchResults() }
+    fun panelClosed() { online.cancel();searchLoading=false;searchWorkspace=null;handler.removeCallbacks(searchTyped);panelArt.stop();panelArt.clearBindings() }
 
     private fun <T> read(work:(CancellationSignal)->T,done:(T)->Unit) {
         val signal=CancellationSignal();signals.add(signal)
@@ -151,6 +161,9 @@ internal class MediaHub(private val activity: Activity, private val ui: TvStyle,
         val keep=focus()
         clearHome();homeRows.clear();art.clearBindings();area.removeAllViews()
         if(!prefs.getBoolean("media.home",true)) { area.visibility=View.GONE;homeChanged();return }
+        if((!prefs.getBoolean("media.continue",true) || shown.isEmpty()) && (!prefs.getBoolean("media.list",true) || saved.isEmpty())) {
+            area.visibility=View.GONE;homeChanged();return
+        }
         area.visibility=View.VISIBLE
         fun caption(title: String,detail: String) {
             val row=LinearLayout(activity).apply { gravity=Gravity.CENTER_VERTICAL }
@@ -158,20 +171,6 @@ internal class MediaHub(private val activity: Activity, private val ui: TvStyle,
             row.addView(ui.text(detail,9.5f,ui.quiet).apply { maxLines=1;ellipsize=TextUtils.TruncateAt.END })
             area.addView(row,LinearLayout.LayoutParams(-1,ui.height(22)).apply { bottomMargin=ui.dp(4) })
         }
-        caption("Multimídia","Seu conteúdo, seus aplicativos")
-        val quick=LinearLayout(activity).apply { clipChildren=false;setPadding(ui.dp(4),ui.dp(4),ui.dp(4),ui.dp(4)) }
-        val controls=ArrayList<View>()
-        val actions=listOf(Triple("search","Buscar",TvIcon.Kind.SEARCH),Triple("list","Minha lista",TvIcon.Kind.PIN),
-            Triple("guide","Programação",TvIcon.Kind.CALENDAR),Triple("now","Reproduzindo",TvIcon.Kind.PLAY))
-        actions.forEachIndexed { index,(key,title,icon) ->
-            val button=LinearLayout(activity).apply { gravity=Gravity.CENTER;contentDescription=title }
-            button.addView(ImageView(activity).apply { setImageDrawable(TvIcon(icon,ui.accent)) },LinearLayout.LayoutParams(ui.dp(18),ui.dp(18)).apply { rightMargin=ui.dp(8) })
-            button.addView(ui.text(title,11.5f,medium=true).apply { maxLines=1;ellipsize=TextUtils.TruncateAt.END },LinearLayout.LayoutParams(-2,-2))
-            styleHome(button,"media-home:"+key)
-            button.setOnClickListener { when(key) { "search"->showSearch();"list"->showList();"guide"->showGuide();else->showNow() } }
-            quick.addView(button,LinearLayout.LayoutParams(0,ui.height(40),1f).apply { if(index<3) rightMargin=ui.dp(8) });controls.add(button)
-        }
-        area.addView(quick);homeRows.add(controls)
         fun cards(title: String,entries: List<MediaEntry>,progress:(MediaEntry)->Int?={null},detail:(MediaEntry)->String) {
             if(entries.isEmpty()) return
             caption(title,"Segure OK para ver opções")
@@ -222,23 +221,43 @@ internal class MediaHub(private val activity: Activity, private val ui: TvStyle,
 
     fun show(focus: String?=null) {
         val s=sheet("Multimídia","Filmes, séries e programação","hub",backToCentral)
-        s.grid(listOf(
-            PanelAction("media:search","Buscar conteúdo","Escolher onde pesquisar",TvIcon.Kind.SEARCH) { showSearch() },
-            PanelAction("media:list","Minha lista","${library().size} itens salvos",TvIcon.Kind.PIN) { showList() },
-            PanelAction("media:guide","Programação","Agora e a seguir",TvIcon.Kind.CALENDAR) { showGuide() },
-            PanelAction("media:watch","Continuar assistindo","Compartilhado pelos aplicativos",TvIcon.Kind.PLAY) { showWatch();refreshWatch() }))
-        s.action("media:reminders","Lembretes","Programas que você quer acompanhar",TvIcon.Kind.BELL) { showReminders() }
-        s.action("media:now","Reproduzindo agora","Controles do aplicativo em reprodução",TvIcon.Kind.CONTROLS) { showNow() }
+        s.expand()
+        val saved=library();val last=watch.items.firstOrNull()?.entry
+        val actions=listOf(
+            PanelAction("media:search","Buscar conteúdo","Filmes e séries · Onde assistir",TvIcon.Kind.SEARCH) { headerSearch=false;showSearch() },
+            PanelAction("media:list","Minha lista","${saved.size} itens · "+(saved.firstOrNull()?.title ?: "Guarde o que deseja assistir"),TvIcon.Kind.PIN) { showList() },
+            PanelAction("media:watch","Continuar assistindo",last?.title ?: "Compartilhado pelos aplicativos",TvIcon.Kind.PLAY) { showWatch();refreshWatch() },
+            PanelAction("media:guide","Programação","Agora e a seguir na sua TV",TvIcon.Kind.CALENDAR) { showGuide() },
+            PanelAction("media:reminders","Lembretes","${MediaReminders.read(activity).size} avisos agendados",TvIcon.Kind.BELL) { showReminders() },
+            PanelAction("media:now","Reproduzindo agora",playback.info.title,TvIcon.Kind.PLAY) { showNow() })
+        gallery(s,actions,3) { when(it.key) { "media:list"->saved.firstOrNull()?.cover.orEmpty();"media:watch"->last?.cover.orEmpty();else->"" } }
         s.action("media:settings","Personalizar multimídia","Faixas da Home e aplicativos de busca",TvIcon.Kind.CONTROLS) { showSettings() }
         s.focusAction(focus)
     }
 
+    private fun gallery(s:LauncherPanel,actions:List<PanelAction>,columns:Int=2,cover:(PanelAction)->String={""}) {
+        s.onScroll { panelArt.refreshVisible() }
+        actions.chunked(columns).forEach { group->
+            val row=LinearLayout(activity).apply { clipChildren=false }
+            group.forEachIndexed { index,item->
+                val card=TvContentCards.create(ui,item.title,"",item.detail,item.icon,cover(item),panelArt)
+                s.register(card,item.key);card.setOnClickListener { item.run() }
+                row.addView(card,LinearLayout.LayoutParams(0,-2,1f).apply { if(index<columns-1) rightMargin=ui.dp(10) })
+            }
+            repeat(columns-group.size) { row.addView(View(activity),LinearLayout.LayoutParams(0,1,1f)) }
+            s.content.addView(row,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=ui.dp(12) })
+        }
+        s.post { if(started) { panelArt.start();panelArt.refreshVisible() } }
+    }
+
     fun showList(focus: String?=null) {
         val s=sheet("Minha lista","Filmes, séries, canais e links","list") { show("media:list") }
-        s.action("media-list:add","Adicionar à lista","Escolher título e aplicativo",TvIcon.Kind.PIN) { editNewEntry() }
+        s.expand()
         val entries=library()
+        val actions=listOf(PanelAction("media-list:add","Adicionar à lista","Escolher título e aplicativo",TvIcon.Kind.PIN) { editNewEntry() })+
+            entries.map { entry->PanelAction("media-list:"+entry.id,entry.title,entry.kindLabel,TvIcon.Kind.PLAY) { showEntry(entry) } }
+        gallery(s,actions,3) { action->entries.firstOrNull { action.key=="media-list:"+it.id }?.cover.orEmpty() }
         if(entries.isEmpty()) s.notice("Guarde aqui o que você quer assistir. Sua lista é local e pode ser incluída no backup do launcher.",TvIcon.Kind.PIN)
-        entries.forEach { entry->s.action("media-list:"+entry.id,entry.title,entry.kindLabel+if(entry.packageName.isNotEmpty()) " · "+label(entry.packageName) else "") { showEntry(entry) } }
         s.focusAction(focus)
     }
     fun showWatch(focus: String?=null) {
@@ -324,35 +343,127 @@ internal class MediaHub(private val activity: Activity, private val ui: TvStyle,
         dialog.show();dialog.window?.setLayout(ui.dp(minOf(600,activity.resources.configuration.screenWidthDp-ui.horizontalInset*2)),-2)
     }
 
+    fun showSearchFromHeader() { headerSearch=true;showSearch() }
+
     fun showSearch(focus: String?=null) {
-        val s=sheet("Buscar conteúdo","Pesquisar nos seus aplicativos","search") { show("media:search") }
-        s.action("media-search:query",if(query.isBlank()) "O que você quer assistir?" else query,"Digitar ou alterar a busca",TvIcon.Kind.SEARCH) { textDialog("Pesquisar",query) { query=it;showSearch() } }
-        s.action("media-search:voice","Pesquisar por voz","Usar o reconhecimento de voz da TV",TvIcon.Kind.MIC) {
-            try { activity.startActivityForResult(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                .putExtra(RecognizerIntent.EXTRA_LANGUAGE,"pt-BR").putExtra(RecognizerIntent.EXTRA_PROMPT,"O que você quer assistir?"),910) }
-            catch(_:Exception) { toast("A busca por voz não está disponível. Use a opção de digitar.") }
+        val s=sheet("Buscar conteúdo","Filmes e séries · Onde assistir no Brasil","search") {
+            if(headerSearch) closeSearch() else show("media:search")
         }
-        if(query.isNotBlank()) {
-            val local=(library()+watch.items.map { it.entry }).filter { it.title.contains(query,true) }.distinctBy { it.title+it.packageName }.take(8)
-            if(local.isNotEmpty()) { s.caption("Na sua lista e nos aplicativos");local.forEach { entry->s.action("media-search:item:"+entry.id,entry.title,entry.kindLabel) { showEntry(entry) } } }
-            s.caption("Pesquisar em")
-            val installed=selectedApps()
-            if(installed.isEmpty()) s.paragraph("Selecione seus aplicativos em Personalizar multimídia.")
-            installed.forEach { app->s.action("media-search:app:"+app.packageName,app.name,
-                if(MediaLinks.search(activity,app.packageName,query)!=null) "Pesquisar diretamente no aplicativo" else "Abrir aplicativo e copiar o título",TvIcon.Kind.SEARCH) { searchIn(app) } }
-            s.action("media-search:save","Salvar este título","Adicionar à Minha lista",TvIcon.Kind.PIN) { save(MediaLibrary.add(library(),MediaEntry(title=query)));showList() }
+        s.expand()
+        val workspace=TvSearchWorkspace(ui,s,query,{ text->
+            query=text.filterNot { Character.isISOControl(it) }.take(128)
+            online.cancel();searchLoading=false
+            if(searchResult?.query!=query) searchResult=null
+            handler.removeCallbacks(searchTyped);handler.postDelayed(searchTyped,160L)
+        },::submitSearch,::voiceSearch,{ openWeb(StreamingPages.searchUrl(query)) },{ panelArt.refreshVisible() })
+        searchWorkspace=workspace;s.workspace(workspace.view)
+        renderSearchResults()
+        if(focus==null) workspace.focusKeyboard() else s.focusAction(focus)
+    }
+
+    private fun voiceSearch() {
+        try { activity.startActivityForResult(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE,"pt-BR").putExtra(RecognizerIntent.EXTRA_PROMPT,"O que você quer assistir?"),910) }
+        catch(_:Exception) { toast("A busca por voz não está disponível. Use o teclado na tela.") }
+    }
+
+    private fun submitSearch() {
+        val text=query.trim()
+        if(text.isBlank()) { toast("Digite o nome de um filme ou série.");return }
+        if(!MediaLibrary.validText(text,128)) return
+        query=text;searchLoading=true;handler.removeCallbacks(searchTyped);renderSearchResults()
+        online.search(text) { result->
+            if(started && isOpen() && screen=="search" && query.trim()==result.query) {
+                searchLoading=false;searchResult=result;renderSearchResults()
+            }
         }
-        s.focusAction(focus)
+    }
+
+    private fun renderSearchResults() {
+        val workspace=searchWorkspace ?: return
+        val area=workspace.results;val panel=area.rootView.findViewWithTag<LauncherPanel>("launcher-panel") ?: return
+        val keep=focus();panelArt.clearBindings();area.removeAllViews();val targets=ArrayList<View>()
+        fun label(value:String,color:Int=ui.muted) {
+            area.addView(ui.text(value,12f,color).apply { setLineSpacing(ui.dp(3).toFloat(),1f) },
+                LinearLayout.LayoutParams(-1,-2).apply { setMargins(ui.dp(6),ui.dp(4),ui.dp(6),ui.dp(12)) })
+        }
+        fun cardRows(actions: List<Triple<String,View,()->Unit>>) {
+            actions.chunked(2).forEach { group->
+                val row=LinearLayout(activity).apply { clipChildren=false }
+                group.forEachIndexed { index,(key,card,run)->
+                    panel.register(card,key);card.setOnClickListener { run() };targets.add(card)
+                    row.addView(card,LinearLayout.LayoutParams(0,-2,1f).apply { if(index==0) rightMargin=ui.dp(9) })
+                }
+                if(group.size==1) row.addView(View(activity),LinearLayout.LayoutParams(0,1,1f))
+                area.addView(row,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=ui.dp(12) })
+            }
+        }
+        if(query.isBlank()) label("O que você quer assistir?\nDigite com o controle e confirme em Buscar.")
+        else {
+            val local=(library()+watch.items.map { it.entry }).filter { it.title.contains(query.trim(),true) }.distinctBy { it.id }.take(4)
+            if(local.isNotEmpty()) {
+                label("Na sua lista e em Continuar assistindo",ui.accent)
+                cardRows(local.map { entry->Triple("media-search:item:"+entry.id,
+                    TvContentCards.create(ui,entry.title,entry.kindLabel,"Sua biblioteca",TvIcon.Kind.PLAY,entry.cover,panelArt)) { showEntry(entry) } })
+            }
+            val result=searchResult?.takeIf { it.query==query.trim() }
+            label(if(searchLoading) "Pesquisando no catálogo…" else result?.message ?: "Confirme em Buscar para consultar os serviços de streaming.")
+            if(result!=null && !searchLoading) cardRows(result.titles.map { title->Triple("stream-title:"+title.id,
+                TvContentCards.create(ui,title.title,title.detail,title.services,TvIcon.Kind.PLAY,title.cover,panelArt)) { showOffers(title) } })
+            val apps=ui.text("Pesquisar dentro de um aplicativo  ›",11.5f,ui.muted,true).apply {
+                gravity=Gravity.CENTER_VERTICAL;setPadding(ui.dp(10),0,ui.dp(10),0);panel.register(this,"media-search:apps",true)
+                setOnClickListener { showSearchApps() }
+            }
+            area.addView(apps,LinearLayout.LayoutParams(-1,ui.height(37)));targets.add(apps)
+        }
+        workspace.setTargets(targets)
+        area.post {
+            if(started && isOpen() && screen=="search") {
+                panelArt.start();panelArt.refreshVisible()
+                if(keep?.startsWith("stream-title:")==true || keep?.startsWith("media-search:item:")==true)
+                    area.findViewWithTag<View>(keep)?.requestFocus()
+            }
+        }
+    }
+
+    private fun showSearchApps() {
+        val s=sheet("Pesquisar nos aplicativos",query,"search-apps") { showSearch("media-search:apps") }
+        val installed=selectedApps()
+        if(installed.isEmpty()) s.notice("Selecione seus aplicativos em Personalizar multimídia.")
+        installed.forEach { app->s.action("media-search:app:"+app.packageName,app.name,
+            if(MediaLinks.search(activity,app.packageName,query)!=null) "Pesquisar diretamente no aplicativo" else "Abrir aplicativo e copiar o título",TvIcon.Kind.SEARCH) { searchIn(app) } }
+        s.focusAction()
+    }
+
+    private fun showOffers(title:StreamTitle) {
+        val s=sheet(title.title,title.detail+" · Brasil","offers") { showSearch("stream-title:"+title.id) }
+        s.expand()
+        s.notice(if(title.offers.isEmpty()) "O catálogo não informou uma oferta para este título no Brasil." else "Escolha onde assistir. Planos, anúncios, aluguel e compra seguem as condições do serviço.",TvIcon.Kind.PLAY)
+        s.grid(title.offers.mapIndexed { index,offer->PanelAction("stream-offer:$index",offer.service,offer.label,TvIcon.Kind.PLAY) {
+            StreamingPages.intent(activity,offer,apps())?.let { if(!launch(it)) toast("Não foi possível abrir este conteúdo. Consulte o JustWatch.") }
+        } })
+        s.action("stream:save","Salvar na Minha lista",title.title,TvIcon.Kind.PIN) {
+            val first=title.offers.firstOrNull { it.type in setOf("FLATRATE","FREE","ADS") } ?: title.offers.firstOrNull()
+            val entry=MediaEntry(id=java.util.UUID.nameUUIDFromBytes(("justwatch:"+title.id).toByteArray(Charsets.UTF_8)).toString(),title=title.title,kind=title.kind,
+                link=first?.url ?: title.page,cover=title.cover)
+            runCatching { save(MediaLibrary.add(library(),entry)) }.fold({ toast("Adicionado à Minha lista.") },{ toast("A lista atingiu o limite de itens ou de tamanho.") })
+        }
+        s.action("stream:source","JustWatch","Consultar a disponibilidade no Brasil",TvIcon.Kind.INFO) { openWeb(title.page) }
+        s.focusAction()
+    }
+
+    private fun openWeb(url:String) {
+        StreamingPages.web(url)?.let { if(!launch(Intent(Intent.ACTION_VIEW,android.net.Uri.parse(it)))) toast("Nenhum aplicativo disponível para abrir o link.") }
     }
     fun onVoiceResult(resultCode: Int,data: Intent?) {
         if(resultCode == Activity.RESULT_OK) data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.trim()?.take(128)
             ?.takeIf { it.isNotBlank() && MediaLibrary.validText(it,128) }?.let { query=it }
-        showSearch()
+        showSearch();if(query.isNotBlank()) submitSearch()
     }
     private fun searchIn(app: MediaApp) {
         val request=MediaLinks.search(activity,app.packageName,query)
         if(request != null && launch(request)) return
-        val s=sheet("Pesquisar em ${app.name}",query,"search-app") { showSearch("media-search:app:"+app.packageName) }
+        val s=sheet("Pesquisar em ${app.name}",query,"search-app") { showSearchApps() }
         s.paragraph("Este aplicativo não oferece uma pesquisa direta compatível. Você pode copiar o título e pesquisar dentro dele.")
         s.action("media-search:copy","Copiar título",query,TvIcon.Kind.PIN) {
             (activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Título",query));toast("Título copiado.")

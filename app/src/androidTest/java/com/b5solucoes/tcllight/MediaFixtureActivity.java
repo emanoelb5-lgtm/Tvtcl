@@ -84,7 +84,8 @@ public class MediaFixtureActivity extends Activity {
             playback(true);session.setActive(true);
         }
         TextView text=new TextView(this);
-        text.setText(Intent.ACTION_SEARCH.equals(getIntent().getAction()) ? "Busca: "+getIntent().getStringExtra(SearchManager.QUERY) : "Filme de teste");
+        text.setText(Intent.ACTION_SEARCH.equals(getIntent().getAction()) ? "Busca: "+getIntent().getStringExtra(SearchManager.QUERY) :
+            getIntent().getData()!=null && "https".equals(getIntent().getData().getScheme()) ? "Conteúdo: "+getIntent().getDataString() : "Filme de teste");
         setContentView(text);
     }
 }

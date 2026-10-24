@@ -1,14 +1,13 @@
-# TCL Light 0.11.0
+# TCL Light 0.12.0
 
-- Home refinada e mais compacta: aplicativos mais acima, relógio maior, clima em destaque e atalhos alinhados.
-- Três temas de cores: Aurora, Safira e Âmbar, em Central → Personalizar aparência → Tema de cores.
-- Central e painéis redesenhados com ícones em destaque, divisórias delicadas e hierarquia mais clara.
-- Cartões de aplicativos com superfícies uniformes e foco luminoso discreto, mantendo os ícones sem nomes repetidos.
-- Capas de mídia 16:9 com identificação e barra de progresso quando a origem fornece duração válida.
-- Tema incluído no backup, com leitura de backups anteriores.
-- Visual nativo leve, sem novas dependências de execução ou desfoque; modo leve sem animações.
-- Mantidos organização, personalização, multimídia, atualização interna e certificado permanente desde a 0.7.0.
+- TV e canais vira um ícone discreto na barra superior, mantendo o acesso e os atalhos de entrada personalizados.
+- Lupa no topo abre uma interface ampla de busca, com teclado virtual para controle remoto e voz opcional.
+- Resultados de filmes e séries com disponibilidade no Brasil, serviços, assinatura/grátis/aluguel/compra e links para o título.
+- Abrir o serviço compatível, salvar o título e a capa na Minha lista ou consultar a fonte JustWatch.
+- Consulta automática leve de atualizações com a Home visível. Um ícone avisa quando há versão nova; baixar e instalar continuam manuais.
+- Multimídia e Minha lista em galerias de cartões 16:9. Continuar assistindo mantém seu formato e funcionamento.
+- Mesma assinatura permanente desde a 0.7.0 e atualização sobre a versão existente.
 
-**Atualize pela TV: Central → Atualizar TCL Light → Verificar atualizações → Baixar → Instalar.** Ou instale o APK por cima, sem desinstalar.
+**Atualize: Central → Atualizar TCL Light → Verificar atualizações → Baixar → Instalar.** Ou instale o APK por cima, sem desinstalar.
 
-As integrações de multimídia continuam dependendo dos dados e acessos disponibilizados pelos aplicativos e pelo firmware da TV.
+As ofertas são informadas pela página pública do JustWatch Brasil e podem mudar. A abertura direta e a reprodução dependem do suporte do aplicativo, de conta e do plano do serviço. Se a consulta ficar indisponível, use o link JustWatch ou a pesquisa dentro de um aplicativo.

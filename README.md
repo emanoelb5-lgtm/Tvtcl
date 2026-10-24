@@ -1,14 +1,14 @@
-# TCL Light 0.11.0
+# TCL Light 0.12.0
 
 Launcher nativo em Kotlin para Android TV, com foco em controle remoto e TVs com pouca memória.
 
-[Baixar TCL-Light-0.11.0.apk](https://github.com/emanoelb5-lgtm/Tvtcl/releases/download/v0.11.0/TCL-Light-0.11.0.apk) · [Versões](https://github.com/emanoelb5-lgtm/Tvtcl/releases)
+[Baixar TCL-Light-0.12.0.apk](https://github.com/emanoelb5-lgtm/Tvtcl/releases/download/v0.12.0/TCL-Light-0.12.0.apk) · [Versões](https://github.com/emanoelb5-lgtm/Tvtcl/releases)
 
 ## Instalação e atualizações
 
-Se você já usa a **0.7.0 a 0.10.0, instale a 0.11.0 por cima**, sem desinstalar. O pacote e a assinatura permanente são os mesmos; a organização, os ajustes e a escolha de tela inicial são mantidos. As betas anteriores à 0.7.0 usaram chaves de teste diferentes e exigem migração única.
+Se você já usa a **0.7.0 a 0.11.0, instale a 0.12.0 por cima**, sem desinstalar. O pacote e a assinatura permanente são os mesmos; a organização, os ajustes e a escolha de tela inicial são mantidos. As betas anteriores à 0.7.0 usaram chaves de teste diferentes e exigem migração única.
 
-Na 0.8.0 ou posterior, abra **Central → Atualizar TCL Light → Verificar atualizações**. Quando houver uma versão nova, escolha Baixar e depois Instalar. O Android pode pedir que você permita instalações pelo TCL Light; a confirmação final continua sendo feita no instalador da TV. O download é manual, pelo GitHub, sem serviço permanente ou consultas periódicas.
+Na 0.8.0 ou posterior, abra **Central → Atualizar TCL Light → Verificar atualizações**. Quando houver uma versão nova, escolha Baixar e depois Instalar. O Android pode pedir que você permita instalações pelo TCL Light; a confirmação final continua sendo feita no instalador da TV. O download é manual, pelo GitHub. Com a Home visível, o launcher consulta somente os metadados de atualização, após a abertura e depois respeitando um intervalo de seis horas; falhas permitem tentar novamente após 15 minutos. Não há serviço permanente, download nem instalação automática. Um ícone aparece na barra superior quando existe uma versão compatível mais recente. A última versão anunciada fica salva para o aviso sobreviver ao fechamento do aplicativo.
 
 O atualizador só aceita o pacote do TCL Light, um código de versão maior e o certificado permanente. Confere tamanho, SHA-256, identidade e assinatura do APK em uma tarefa de fundo e confere novamente antes de abrir o instalador. O arquivo fica no cache privado e é compartilhado por uma URI temporária somente de leitura. Falhas e cancelamentos descartam o download parcial.
 
@@ -28,6 +28,13 @@ O certificado público fica em [signing/tcl-light-release.pem](signing/tcl-light
 - A Play Store aparece entre os aplicativos quando instalada e habilitada, inclusive como app de sistema, e tem atalho na Central.
 - A faixa superior fica fora da área de rolagem, com recorte dos cartões para que nunca a cubram. Ela reúne clima de Garrafão do Norte, hora, data, rede, entradas e Central. Não há botão de marca nem nomes repetidos sob os cartões.
 
+## Descoberta e navegação na 0.12.0
+
+- TV e canais passa a um ícone pequeno no topo; seus atalhos HDMI personalizados continuam na Home.
+- Lupa na barra superior, teclado próprio para controle e resultados em cartões, com disponibilidade no Brasil, tipo de oferta e abertura do título no serviço.
+- Aviso de nova versão na barra superior, consulta automática leve e download/instalação mediante escolha do usuário.
+- Galerias de cartões na Multimídia e Minha lista. A faixa Continuar assistindo mantém seu formato e funcionamento.
+
 ## Interface na 0.11.0
 
 - Home mais compacta, com cabeçalho fixo, clima em destaque, relógio maior e atalhos de TV e multimídia menores. A grade começa mais acima.
@@ -38,10 +45,11 @@ O certificado público fica em [signing/tcl-light-release.pem](signing/tcl-light
 
 ## Multimídia na 0.10.0
 
-Abra **Central → Multimídia e programação**, ou use os atalhos Buscar, Minha lista, Programação e Reproduzindo na Home.
+Abra **Central → Multimídia e programação** para a galeria de cartões. A lupa na barra superior abre a busca. A Home exibe os cartões reais de Continuar assistindo e Minha lista quando há conteúdo, sem a antiga fileira de botões.
 
 - **Minha lista:** títulos, filmes, séries, canais e links HTTPS, com aplicativo escolhido, nomes próprios, ordenação e remoção pelo controle. Limite de 80 itens/64 KiB. Entra no backup local e continua disponível sem internet. Não importa contas ou históricos privados dos streamings.
-- **Busca nos aplicativos:** digitação e reconhecimento de voz fornecido pela TV. O launcher encaminha o título ao `ACTION_SEARCH` do aplicativo escolhido quando ele anuncia suporte. Nos demais, oferece copiar o título e abrir o aplicativo. A busca também encontra os títulos da lista e do Watch Next acessível. Selecione seus serviços em Personalizar multimídia → Aplicativos de busca.
+- **Busca de conteúdo:** teclado virtual próprio, operado pelo controle, com letras, números, espaço, apagar, limpar e voz opcional. A pesquisa é enviada ao confirmar Buscar. A página pública do JustWatch Brasil informa títulos, ano, serviços e links diretos de conteúdo; o launcher separa assinatura, grátis com anúncios, grátis, aluguel e compra. A escolha do serviço abre o link do título no aplicativo quando compatível ou pelo manipulador HTTPS do Android. Planos, contas e reprodução continuam a cargo do serviço. O detalhe de cada título oferece salvar na Minha lista e o link de atribuição JustWatch.
+- **Consulta leve:** uma tarefa cancelável, limite de 2 MiB por página descomprimida, quatro buscas em memória por 15 minutos e capas carregadas apenas quando visíveis. Não há conta JustWatch, chave de parceiro, execução de JavaScript, catálogo sincronizado em segundo plano ou histórico de pesquisas em disco. Alterações ou indisponibilidade da página pública podem interromper a consulta; a interface oferece tentar novamente, abrir JustWatch ou pesquisar dentro de um aplicativo. Essa alternativa encaminha `ACTION_SEARCH` quando disponível, ou permite copiar o título e abrir o app. As buscas locais na lista e Watch Next acessível também continuam disponíveis.
 - **Programação:** após autorização de acesso à programação nos ajustes do Android, consulta os canais visíveis e programas das próximas 24 horas no `TvProvider`. Mostra Agora/a seguir, favoritos e opção de assistir pelo app de TV. Canais online, inclusive a numeração a partir de 105, só aparecem se o firmware os publicar. O launcher não solicita permissões de assinatura nem presume acesso a todas as grades. Se o fabricante limitar a consulta, oferece o guia nativo e lembretes manuais.
 - **Lembretes:** criação por programa futuro, título da lista ou cadastro manual com data/hora. Aviso agendado até cinco minutos antes, com abertura das opções mediante toque; nunca troca o canal automaticamente. Limite de 32. Reagenda após reiniciar, ajustar o relógio ou atualizar o APK. O Android pode atrasar ou ocultar notificações em espera; a lista continua disponível. Os agendamentos ficam nesta TV e não são recriados ao importar backup em outra.
 - **Continuar assistindo:** com o acesso à programação autorizado, lê os itens Watch Next que os aplicativos e o firmware disponibilizam, com capa, progresso, abertura no app de origem e salvamento na Minha lista. Não inventa histórico e não garante compatibilidade universal. Uma mensagem explica quando o Android não fornece acesso.
@@ -78,9 +86,9 @@ Fonte das coordenadas: [IBGE, mapa municipal](https://geoftp.ibge.gov.br/cartas_
 2. Gera APK release unsigned e um APK interno com código maior para testar a atualização; nenhum APK debug é distribuído.
 3. O proprietário assina com a chave permanente usando [tools/sign_release.py](tools/sign_release.py), em ambiente privado.
 4. A branch `signed-releases` contém somente material público de distribuição e o fonte; não contém a chave ou suas senhas.
-5. O workflow valida pacote, versões, hashes, metadados de atualização e certificado fixo. No emulador, instala a 0.10.0 pública, altera uma preferência pela interface e aplica a 0.11.0 com `adb install -r`. Depois aplica um APK interno de código maior. A publicação exige que as duas atualizações preservem o Home alternativo e a preferência.
+5. O workflow valida pacote, versões, hashes, metadados de atualização e certificado fixo. No emulador, instala a 0.11.0 pública, altera uma preferência pela interface e aplica a 0.12.0 com `adb install -r`. Depois aplica um APK interno de código maior. A publicação exige que as duas atualizações preservem o Home alternativo e a preferência.
 
-Depois da publicação, outra instalação limpa da 0.10.0 usa o próprio atualizador para consultar o canal beta, baixar a 0.11.0 e confirmar a instalação no instalador Android. A escolha de Home e a preferência salva também são verificadas nesse caminho.
+Depois da publicação, outra instalação limpa da 0.11.0 usa o próprio atualizador para consultar o canal beta, baixar a 0.12.0 e confirmar a instalação no instalador Android. A escolha de Home e a preferência salva também são verificadas nesse caminho.
 
 O APK interno de teste não é publicado em Releases. O resultado da verificação acompanha o APK público. O teste reproduz o caso em que a imagem Android TV dá prioridade ao Google: desativa o launcher original apenas para o usuário do emulador descartável, confirma o TCL Light como Home e restaura o componente ao terminar. Os testes do atualizador usam o APK público 0.7.0 de assinatura permanente para validar downloads, integridade e identidade; ele só entra no APK de testes. Esses testes não substituem a validação do instalador no firmware da TCL física.
 
