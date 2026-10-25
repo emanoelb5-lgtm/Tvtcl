@@ -14,6 +14,10 @@ internal data class StoredThumbnail(val bitmap: Bitmap,val banner: Boolean=false
 /** All operations run on artwork workers. Hashed private cache files; no original full-size images. */
 internal class ThumbnailStore(private val directory: File,private val maxBytes: Long,
     private val maxEntries: Int=128,private val now:()->Long=System::currentTimeMillis) {
+    // Legacy TV filesystems may expose only whole-second mtimes. Accesses in this instance break those ties.
+    private val recent=HashMap<String,Long>()
+    private var sequence=0L
+    private fun touch(target: File) { recent[target.name]=++sequence;target.setLastModified(now()) }
     private fun file(key: String): File {
         val digest=MessageDigest.getInstance("SHA-256").digest(key.toByteArray(Charsets.UTF_8))
         val hex="0123456789abcdef"
@@ -39,9 +43,9 @@ internal class ThumbnailStore(private val directory: File,private val maxBytes: 
             options.inJustDecodeBounds=false
             options.inPreferredConfig=if(bytes.first and 2 != 0) Bitmap.Config.RGB_565 else Bitmap.Config.ARGB_8888
             val bitmap=BitmapFactory.decodeByteArray(bytes.second,0,bytes.second.size,options) ?: return null
-            target.setLastModified(now())
+            touch(target)
             StoredThumbnail(bitmap,bytes.first and 1 != 0)
-        } catch(_:Exception) { target.delete();null } catch(_:OutOfMemoryError) { null }
+        } catch(_:Exception) { target.delete();recent.remove(target.name);null } catch(_:OutOfMemoryError) { null }
     }
     @Synchronized fun write(key: String,value: StoredThumbnail,opaque: Boolean=false) {
         if(value.bitmap.width>640 || value.bitmap.height>360 || value.bitmap.isRecycled) return
@@ -56,16 +60,17 @@ internal class ThumbnailStore(private val directory: File,private val maxBytes: 
                 data.writeInt(MAGIC);data.writeLong(now());data.writeByte((if(value.banner)1 else 0) or (if(opaque)2 else 0))
                 data.writeInt(encoded.size());encoded.writeTo(data);data.flush();atomic.finishWrite(output)
             } catch(error:Exception) { atomic.failWrite(output);throw error }
-            atomic.baseFile.setLastModified(now())
+            touch(atomic.baseFile)
             prune()
         }
     }
     private fun prune() {
-        val files=directory.listFiles()?.filter { it.name.endsWith(".thumb") }?.sortedByDescending { it.lastModified() }.orEmpty()
+        val files=directory.listFiles()?.filter { it.name.endsWith(".thumb") }?.sortedWith(
+            compareByDescending<File> { recent[it.name] ?: Long.MIN_VALUE }.thenByDescending { it.lastModified() }.thenBy { it.name }).orEmpty()
         var bytes=0L;var count=0
         files.forEach { entry ->
             val length=entry.length()
-            if(count>=maxEntries || bytes+length>maxBytes) entry.delete()
+            if(count>=maxEntries || bytes+length>maxBytes) { entry.delete();recent.remove(entry.name) }
             else { bytes+=length;count++ }
         }
     }
