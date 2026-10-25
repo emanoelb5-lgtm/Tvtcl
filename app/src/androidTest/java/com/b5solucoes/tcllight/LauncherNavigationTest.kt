@@ -140,6 +140,52 @@ class LauncherNavigationTest {
         await { onUi { find("grid:"+ids.first())?.let { it.isLaidOut && it.height>0 }==true } }
     }
 
+    @Test fun testUiHiddenPreservesWarmAppArtworkAndVisibleMediaCover() {
+        val art=onUi { MainActivity::class.java.getDeclaredField("artwork\$delegate").apply { isAccessible=true }.get(screen) as Lazy<*> }.value as AppArtwork
+        val component=ComponentName(fixture,FixtureActivity::class.java.name)
+        val loaded=java.util.concurrent.CountDownLatch(1)
+        var original:Artwork?=null
+        onUi { art.load(component) { original=it;loaded.countDown() } }
+        assertTrue(loaded.await(8,java.util.concurrent.TimeUnit.SECONDS));assertNotNull(original)
+        val calls=java.util.concurrent.atomic.AtomicInteger()
+        val folder=File(instrumentation.targetContext.cacheDir,"ui-cover-lifecycle");folder.deleteRecursively()
+        val repository=MediaArtwork(screen,android.os.Handler(Looper.getMainLooper()),folder,{ calls.incrementAndGet();Bitmap.createBitmap(320,180,Bitmap.Config.RGB_565) })
+        val bindings=MediaArt(screen,android.os.Handler(Looper.getMainLooper()),repository)
+        lateinit var image:android.widget.ImageView
+        lateinit var overlay:android.widget.FrameLayout
+        onUi {
+            overlay=android.widget.FrameLayout(screen)
+            val placeholder=View(screen);image=android.widget.ImageView(screen)
+            overlay.addView(placeholder,android.widget.FrameLayout.LayoutParams(320,180))
+            overlay.addView(image,android.widget.FrameLayout.LayoutParams(320,180))
+            screen.findViewById<ViewGroup>(android.R.id.content).addView(overlay,ViewGroup.LayoutParams(400,240))
+            bindings.bind(image,placeholder,"https://example.org/cover-lifecycle.jpg")
+        }
+        await { onUi { image.isLaidOut } }
+        onUi { bindings.start() }
+        await { onUi { image.drawable!=null } }
+        onUi {
+            val cover=image.drawable
+            screen.onTrimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN)
+            var immediate=false
+            art.load(component) { assertSame(original!!.bitmap,it!!.bitmap);immediate=true }
+            assertTrue("Sair de Home não pode apagar os ícones em RAM",immediate)
+            bindings.stop();assertSame(cover,image.drawable);bindings.start()
+            assertSame("Retornar deve manter a capa pronta",cover,image.drawable)
+        }
+        assertEquals(1,calls.get())
+        val recovered=java.util.concurrent.CountDownLatch(1)
+        onUi {
+            screen.onTrimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL)
+            var immediate=false
+            art.load(component) { assertNotNull("A cópia local deve sobreviver à pressão de memória",it);immediate=true;recovered.countDown() }
+            assertFalse("Pressão crítica deve liberar o cache em RAM",immediate)
+        }
+        assertTrue(recovered.await(8,java.util.concurrent.TimeUnit.SECONDS))
+        onUi { bindings.close();repository.close();screen.findViewById<ViewGroup>(android.R.id.content).removeView(overlay) }
+        folder.deleteRecursively()
+    }
+
     @Test fun testScrolledCardsStayInsideViewportAtEveryCardSize() {
         val ids = (0 until 42).map { "sample.app.$it" }
         val header = find("home:header")!!

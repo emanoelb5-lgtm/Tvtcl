@@ -12,8 +12,8 @@ android {
         minSdk = 23
         targetSdk = 28
         // CI builds an internal higher-code APK only to verify an actual in-place update.
-        versionCode = providers.gradleProperty("verificationVersionCode").orNull?.toInt() ?: 12
-        versionName = "0.12.0"
+        versionCode = providers.gradleProperty("verificationVersionCode").orNull?.toInt() ?: 13
+        versionName = "0.13.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

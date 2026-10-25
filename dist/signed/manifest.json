@@ -1,12 +1,12 @@
 {
-  "version_name": "0.12.0",
-  "version_code": 12,
-  "upgrade_probe_code": 13,
+  "version_name": "0.13.0",
+  "version_code": 13,
+  "upgrade_probe_code": 14,
   "package": "com.b5solucoes.tcllight",
-  "source_commit": "4e2221895182afdcc5e3d375f875e6ee76359f60",
+  "source_commit": "3423fab781bd242abe990cadd0db3a4087a71348",
   "certificate_sha256": "21e8b079624ca39fcb84817f2a711c46e474d2ccdb65f6e629e26fe153fdb688",
   "files": {
-    "TCL-Light-0.12.0.apk": "4ee4197805211be8f91e6625cff58a622dbcb0d5672db4786c04f91c4c46225f",
-    "upgrade-probe.apk": "e5bdb11e4b3d0dab036b1721cf596adec0fa851759cff72e9d4b05d00cd9488a"
+    "TCL-Light-0.13.0.apk": "848ddbb66262ca6bbb4bc497d34a35fea746b0af43c7cb8348adf28777434cd3",
+    "upgrade-probe.apk": "44d97060952dcf38f55f0739ec21c75bcf1378f6832cc03ca296f3d6cf5578af"
   }
 }

@@ -64,7 +64,7 @@ def resolved_home():
 
 # Reproduce the owner's verified setup: the factory Google launcher stays installed,
 # disabled only for user 0 inside this disposable emulator. Restore it after diagnostics.
-baseline = root / "dist/baseline/TCL-Light-0.11.0.apk"
+baseline = root / "dist/baseline/TCL-Light-0.12.0.apk"
 assert "Success" in adb("install", str(baseline))
 home_request = shell("cmd", "package", "set-home-activity", "--user", "0", pkg + "/.MainActivity")
 (qa / "home-request.txt").write_text(home_request)
@@ -108,7 +108,7 @@ for name, code in [("TCL-Light-" + version["version_name"] + ".apk", version["ve
     shell("screencap", "-p", "/sdcard/tcl-upgrade-after.png")
     adb("pull", "/sdcard/tcl-upgrade-after.png", str(qa / ("after-code-" + str(code) + ".png")))
     updates.append({"target_code": code, "result": "Success", "home_preserved": True, "preference_preserved": True})
-report = {"version": version["version_name"], "baseline_version": "0.11.0", "baseline_code": 11,
+report = {"version": version["version_name"], "baseline_version": "0.12.0", "baseline_code": 12,
     "installed_code": version["version_code"], "internal_upgrade_code": version["upgrade_probe_code"],
     "updates": updates, "update_result": "Success", "test_environment": "Android TV API 28, 1280x720",
     "stock_launcher_disabled_for_test": stock_home == "com.google.android.tvlauncher",
