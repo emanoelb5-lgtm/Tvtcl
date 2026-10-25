@@ -118,8 +118,26 @@ else:
     raise AssertionError("A preferência não mudou após o único toque no controle")
 shell("input", "keyevent", "20")
 activate("Atualizar TCL Light.")
-activate("Verificar atualizações.")
-activate("Baixar versão " + version["version_name"] + ".")
+# 0.12.0 may already have found this release through its foreground automatic check.
+# Accept that real state, or request one manual check when the action is still available.
+download_label = "Baixar versão " + version["version_name"] + "."
+until = time.monotonic() + 60
+requested = False
+while time.monotonic() < until:
+    actions = [n for n in snapshot().iter("node") if n.get("clickable") == "true"]
+    if any(n.get("content-desc", "").startswith(download_label) for n in actions):
+        break
+    check = next((n for n in actions if n.get("content-desc", "").startswith("Verificar atualizações.")), None)
+    if check is not None and not requested:
+        if check.get("focused") == "true":
+            shell("input", "keyevent", "23")
+            requested = True
+        else:
+            shell("input", "keyevent", "20")
+    time.sleep(.25)
+else:
+    raise AssertionError("O atualizador não apresentou a versão pública esperada")
+activate(download_label)
 wait_node("Instalar atualização.", timeout=180)
 snapshot("download-verified")
 screenshot("download-verified")
