@@ -106,8 +106,16 @@ shell("input", "keyevent", "20")
 shell("input", "keyevent", "22")
 assert wait_node("Modo leve.").get("focused") == "true"
 shell("input", "keyevent", "23")
-saved = wait_node("Modo leve.").get("content-desc")
-assert saved != before
+# input returns before the main thread necessarily rebuilds the selected row.
+# Poll the actual changed preference label without sending a second toggle.
+until = time.monotonic() + 12
+while time.monotonic() < until:
+    saved = wait_node("Modo leve.").get("content-desc")
+    if saved != before:
+        break
+    time.sleep(.2)
+else:
+    raise AssertionError("A preferência não mudou após o único toque no controle")
 shell("input", "keyevent", "20")
 activate("Atualizar TCL Light.")
 activate("Verificar atualizações.")
