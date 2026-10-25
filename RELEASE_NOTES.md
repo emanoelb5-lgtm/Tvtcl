@@ -1,13 +1,12 @@
-# TCL Light 0.12.0
+# TCL Light 0.13.0
 
-- TV e canais vira um ícone discreto na barra superior, mantendo o acesso e os atalhos de entrada personalizados.
-- Lupa no topo abre uma interface ampla de busca, com teclado virtual para controle remoto e voz opcional.
-- Resultados de filmes e séries com disponibilidade no Brasil, serviços, assinatura/grátis/aluguel/compra e links para o título.
-- Abrir o serviço compatível, salvar o título e a capa na Minha lista ou consultar a fonte JustWatch.
-- Consulta automática leve de atualizações com a Home visível. Um ícone avisa quando há versão nova; baixar e instalar continuam manuais.
-- Multimídia e Minha lista em galerias de cartões 16:9. Continuar assistindo mantém seu formato e funcionamento.
-- Mesma assinatura permanente desde a 0.7.0 e atualização sobre a versão existente.
+Carregamento mais ágil dos aplicativos e das miniaturas, com a mesma assinatura permanente.
 
-**Atualize: Central → Atualizar TCL Light → Verificar atualizações → Baixar → Instalar.** Ou instale o APK por cima, sem desinstalar.
+- Lista de aplicativos recuperada do cache local enquanto a TV verifica instalações e alterações em segundo plano.
+- Ícones de Mais utilizados e Seus aplicativos compartilhados em memória e persistidos no tamanho do cartão; atualização de versão troca a chave do cache.
+- Capas compartilhadas entre Continuar assistindo, Minha lista e busca, com deduplicação de downloads e cache local. Leituras locais não ficam atrás de downloads lentos.
+- Prioridade para cartões visíveis e pré-carregamento limitado dos próximos cartões.
+- Corrigida a limpeza indevida de imagens quando a Home ficava oculta; os limites e a liberação em pressão real de memória continuam ativos.
+- Interface, organização, progresso de Continuar assistindo e escolha de Home preservados.
 
-As ofertas são informadas pela página pública do JustWatch Brasil e podem mudar. A abertura direta e a reprodução dependem do suporte do aplicativo, de conta e do plano do serviço. Se a consulta ficar indisponível, use o link JustWatch ou a pesquisa dentro de um aplicativo.
+Instale por cima da 0.7.0 ou posterior, sem desinstalar. Ou use Central de ações → Atualizar TCL Light. A primeira consulta de uma capa ainda depende da disponibilidade do aplicativo/servidor que a fornece.

@@ -1,6 +1,6 @@
 {
-  "version_name": "0.12.0",
-  "version_code": 12,
-  "upgrade_probe_code": 13,
+  "version_name": "0.13.0",
+  "version_code": 13,
+  "upgrade_probe_code": 14,
   "package": "com.b5solucoes.tcllight"
 }

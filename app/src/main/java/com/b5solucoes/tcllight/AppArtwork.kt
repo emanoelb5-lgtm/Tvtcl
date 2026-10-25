@@ -1,65 +1,75 @@
 package com.b5solucoes.tcllight
 
+import android.app.ActivityManager
 import android.content.ComponentName
 import android.content.Context
+import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.os.Handler
 import android.os.Looper
 import android.util.LruCache
-import java.util.concurrent.Executors
+import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
-internal data class Artwork(val bitmap: Bitmap, val banner: Boolean)
+internal data class Artwork(val bitmap: Bitmap,val banner: Boolean)
 
-/** Bounded thumbnails, decoded away from input dispatch; shared by both app rows. */
-internal class AppArtwork(context: Context) {
-    private val manager = context.applicationContext.packageManager
-    private val worker = Executors.newSingleThreadExecutor { r -> Thread({ android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND); r.run() },"tv-artwork") }
-    private val main = Handler(Looper.getMainLooper())
-    private val waiting = HashMap<String,MutableList<(Artwork?) -> Unit>>()
-    private val cache = object : LruCache<String,Artwork>(4 * 1024 * 1024) {
-        override fun sizeOf(key: String, value: Artwork) = value.bitmap.allocationByteCount
+/** Shared by both app rows: RAM first, pre-sized disk thumbnail second, package resources last. */
+internal class AppArtwork(context: Context,private val directory: File=File(context.cacheDir,"app-thumbnails-v1"),
+    private val source: ((ComponentName)->Artwork?)?=null) {
+    private data class Source(val revision: String,val info: ActivityInfo?)
+    private val manager=context.applicationContext.packageManager
+    private val identity=context.resources.configuration.let {
+        @Suppress("DEPRECATION")
+        val language=if(android.os.Build.VERSION.SDK_INT>=24) it.locales.toLanguageTags() else it.locale.toString()
+        "$language|${it.densityDpi}|${it.uiMode and 48}"
     }
-    private var closed = false
-    private var generation = 0
-
-    fun load(component: ComponentName, result: (Artwork?) -> Unit) {
+    private val sources=ConcurrentHashMap<String,Source>()
+    private val worker=ArtworkQueue("tv-artwork")
+    private val main=Handler(Looper.getMainLooper())
+    private val waiting=HashMap<String,MutableList<(Artwork?)->Unit>>()
+    private val memoryBytes=if((context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager).isLowRamDevice) 2*1024*1024 else 4*1024*1024
+    private val cache=object:LruCache<String,Artwork>(memoryBytes) { override fun sizeOf(key: String,value: Artwork)=value.bitmap.allocationByteCount }
+    private val disk=ThumbnailStore(directory,8L*1024*1024)
+    private var closed=false
+    private var generation=0
+    fun register(component: ComponentName,revision: String,info: ActivityInfo?=null) { sources[component.flattenToString()]=Source(revision,info) }
+    private fun key(component: ComponentName)=component.flattenToString()+"|"+sources[component.flattenToString()]?.revision.orEmpty()+"|"+identity
+    fun load(component: ComponentName,visible: Boolean=true,result:(Artwork?)->Unit) {
         if(closed) return
-        val key = component.flattenToString()
-        cache.get(key)?.let { result(it); return }
-        waiting[key]?.let { it.add(result); return }
-        waiting[key] = mutableListOf(result)
-        val request = generation
-        worker.execute {
-            val art = try {
-                @Suppress("DEPRECATION")
-                val info = manager.getActivityInfo(component,0)
-                val wide = info.loadBanner(manager)?.takeIf {
-                    it.intrinsicWidth > 0 && it.intrinsicHeight > 0 &&
-                        it.intrinsicWidth.toFloat() / it.intrinsicHeight >= 1.45f
+        val cacheKey=key(component)
+        cache.get(cacheKey)?.let { result(it);return }
+        waiting[cacheKey]?.let { it.add(result);if(visible) worker.promote(cacheKey);return }
+        waiting[cacheKey]=mutableListOf(result)
+        val request=generation
+        worker.execute(cacheKey,visible) {
+            val art=try {
+                disk.read(cacheKey)?.let { Artwork(it.bitmap,it.banner) } ?: (source?.invoke(component) ?: if(source==null) decode(component) else null)?.also {
+                    disk.write(cacheKey,StoredThumbnail(it.bitmap,it.banner))
                 }
-                val drawable = wide ?: info.loadIcon(manager)
-                val w = if(wide != null) 320 else 128
-                val h = if(wide != null) 180 else 128
-                val bitmap = Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888)
-                val ratio = if(drawable.intrinsicWidth > 0 && drawable.intrinsicHeight > 0)
-                    minOf(w.toFloat()/drawable.intrinsicWidth,h.toFloat()/drawable.intrinsicHeight) else 1f
-                val dw = if(drawable.intrinsicWidth > 0) (drawable.intrinsicWidth*ratio).toInt() else w
-                val dh = if(drawable.intrinsicHeight > 0) (drawable.intrinsicHeight*ratio).toInt() else h
-                drawable.setBounds((w-dw)/2,(h-dh)/2,(w+dw)/2,(h+dh)/2)
-                drawable.draw(Canvas(bitmap))
-                Artwork(bitmap,wide != null)
-            } catch(_: Exception) { null } catch(_: OutOfMemoryError) { null }
+            } catch(_:Exception) { null } catch(_:OutOfMemoryError) { null }
             main.post {
-                if(!closed && generation == request) {
-                    if(art != null) cache.put(key,art)
-                    waiting.remove(key)?.forEach { it(art) }
+                if(!closed && generation==request) {
+                    if(art!=null && cacheKey==key(component)) cache.put(cacheKey,art)
+                    waiting.remove(cacheKey)?.forEach { it(art.takeIf { cacheKey==key(component) }) }
                 }
             }
         }
     }
-
-    fun invalidate() { generation++; waiting.clear(); cache.evictAll() }
-    fun trim() { cache.evictAll() }
-    fun close() { closed = true; invalidate(); worker.shutdownNow(); main.removeCallbacksAndMessages(null) }
+    private fun decode(component: ComponentName): Artwork? {
+        @Suppress("DEPRECATION")
+        val info=sources[component.flattenToString()]?.info ?: manager.getActivityInfo(component,0)
+        val wide=info.loadBanner(manager)?.takeIf { it.intrinsicWidth>0 && it.intrinsicHeight>0 && it.intrinsicWidth.toFloat()/it.intrinsicHeight>=1.45f }
+        val drawable=wide ?: info.loadIcon(manager)
+        val w=if(wide!=null) 320 else 128;val h=if(wide!=null) 180 else 128
+        val bitmap=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888)
+        val ratio=if(drawable.intrinsicWidth>0 && drawable.intrinsicHeight>0) minOf(w.toFloat()/drawable.intrinsicWidth,h.toFloat()/drawable.intrinsicHeight) else 1f
+        val dw=if(drawable.intrinsicWidth>0) (drawable.intrinsicWidth*ratio).toInt() else w
+        val dh=if(drawable.intrinsicHeight>0) (drawable.intrinsicHeight*ratio).toInt() else h
+        drawable.setBounds((w-dw)/2,(h-dh)/2,(w+dw)/2,(h+dh)/2);drawable.draw(Canvas(bitmap))
+        return Artwork(bitmap,wide!=null)
+    }
+    fun invalidate() { generation++;waiting.values.flatten().forEach { it(null) };waiting.clear();cache.evictAll() }
+    fun trim(severe: Boolean=true) { if(severe) cache.evictAll() else cache.trimToSize(memoryBytes/2) }
+    fun close() { closed=true;invalidate();worker.close();main.removeCallbacksAndMessages(null) }
 }
