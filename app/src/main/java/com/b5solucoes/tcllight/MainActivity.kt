@@ -34,7 +34,8 @@ class MainActivity : Activity() {
     private data class TvApp(val name: String, val packageName: String, val component: ComponentName)
     private data class ArtworkBinding(val card: View, val image: ImageView, val placeholder: View,
         val component: ComponentName, val large: Boolean, var visible: Boolean = false,
-        var loading: Boolean = false, var hasImage: Boolean = false)
+        var loading: Boolean = false, var hasImage: Boolean = false, val picker: Boolean = false,
+        var art: Artwork? = null, var loadedKey: String = "", var attemptedKey: String = "", var attemptedAt: Long = 0)
     private val artworkBindings = ArrayList<ArtworkBinding>()
     private val visibleRect = Rect()
     private var artworkUpdatePending = false
@@ -48,10 +49,11 @@ class MainActivity : Activity() {
     private val lowMemory by lazy { (getSystemService(ACTIVITY_SERVICE) as ActivityManager).isLowRamDevice }
     private fun economy() = prefs.getBoolean("eco_mode", lowMemory)
     private val ui by lazy { TvStyle(this, ::economy, { prefs.getInt("text_scale",100) / 100f }, { safeHorizontal() to safeVertical() }, { prefs.getInt(LauncherPalettes.PREF,0) }) }
-    private val artwork by lazy { AppArtwork(applicationContext) }
+    private val artwork by lazy { AppArtwork(applicationContext,evicted=::releaseEvictedArtwork) }
     private val catalogCache by lazy { AppCatalogCache(applicationContext) }
     private var catalogWarmAttempted=false
     private var scannedSnapshot:List<CachedTvApp> = emptyList()
+    private var scannedInfos:Map<String,android.content.pm.ActivityInfo> = emptyMap()
     private var appliedCatalogSignature=""
     private val scanner = Executors.newSingleThreadExecutor { r -> Thread({ android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND); r.run() },"tv-app-catalog") }
     private lateinit var frame: FrameLayout
@@ -127,6 +129,9 @@ class MainActivity : Activity() {
     private val homeViews = LinkedHashMap<String,View>()
     private val navViews = ArrayList<View>()
     private val topViews = ArrayList<View>()
+    private var topAddButton:View?=null
+    private var topAddWidth=0
+    private val tileSpecs=HashMap<String,String>()
     private val gridViews = ArrayList<View>()
     private var topSignature = ""
     private var gridSignature = ""
@@ -136,7 +141,6 @@ class MainActivity : Activity() {
     private var scanning = false
     private var scanAgain = false
     private var appsDirty = true
-    private var catalogRevision = 0
     private var usageDirty = false
     private var foreground = false
     private var firstData = true
@@ -155,12 +159,12 @@ class MainActivity : Activity() {
             handler.postDelayed(this,60000L - System.currentTimeMillis() % 60000L)
         }
     }
+    private val packageRefresh=Runnable { if(foreground && appsDirty && !isDestroyed) refresh() }
     private val packageEvents = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            appsDirty = true
-            catalogRevision++
-            artwork.invalidate()
-            if(foreground) refresh()
+            appsDirty=true
+            handler.removeCallbacks(packageRefresh)
+            if(foreground) handler.postDelayed(packageRefresh,350L)
         }
     }
     private val networkEvents = object : ConnectivityManager.NetworkCallback() {
@@ -220,15 +224,27 @@ class MainActivity : Activity() {
         weather.start()
         updates.observe(updateObserver)
         handler.postDelayed(automaticUpdates,5000L)
-        if(usageDirty) { usageDirty = false; renderApps() }
+        applyUsageChanges()
         requestArtworkUpdate()
         refreshBackgroundTv()
         mediaHub?.start()
     }
 
+    override fun onResume() {
+        super.onResume()
+        applyUsageChanges()
+    }
+
+    private fun applyUsageChanges() {
+        if(usageDirty && foreground) { usageDirty=false;renderApps() }
+    }
+
     override fun onStop() {
         finishMoving(true)
         foreground = false
+        artworkBindings.forEach { it.visible=false }
+        artwork.setVisible(emptySet())
+        handler.removeCallbacks(packageRefresh)
         backgroundTv?.stop()
         mediaHub?.stop()
         handler.removeCallbacks(clockUpdate)
@@ -270,10 +286,9 @@ class MainActivity : Activity() {
         val pressure=level==TRIM_MEMORY_RUNNING_LOW || level==TRIM_MEMORY_RUNNING_CRITICAL || level>=TRIM_MEMORY_BACKGROUND
         if(pressure) {
             val severe=level==TRIM_MEMORY_RUNNING_CRITICAL || level>=TRIM_MEMORY_MODERATE
+            // Keep pixels already on screen. Eviction releases offscreen bindings, never flashes visible cards.
+            artwork.setVisible(artworkBindings.filter { artworkVisible(it) }.map { it.component }.toSet())
             artwork.trim(severe);mediaHub?.trim(severe)
-            if(severe || !foreground) artworkBindings.forEach {
-                it.image.setImageDrawable(null);it.placeholder.visibility=View.VISIBLE;it.hasImage=false
-            }
             if(backgroundTv?.state==BackgroundTvState.PLAYING) backgroundTv?.fail("A TV ao fundo foi encerrada para liberar memória.")
         }
     }
@@ -282,6 +297,7 @@ class MainActivity : Activity() {
         super.onNewIntent(intent)
         setIntent(intent)
         finishMoving(true)
+        applyUsageChanges()
         closePanel()
         if(intent.action == MediaReminders.ACTION_OPEN) {
             intent.getStringExtra("reminder_id")?.let { mediaHub?.showReminder(it) }
@@ -333,7 +349,7 @@ class MainActivity : Activity() {
     private fun dp(value: Int) = ui.dp(value)
     private fun safeHorizontal() = prefs.getInt("safe_horizontal",42).coerceIn(24,72)
     private fun safeVertical() = prefs.getInt("safe_vertical",8).coerceIn(0,24)
-    private fun firstHomeView(): View = topViews.firstOrNull() ?: shortcutViews.firstOrNull() ?: gridViews.firstOrNull() ?: mediaHub?.homeRows?.firstOrNull()?.firstOrNull() ?: centralButton
+    private fun firstHomeView(): View = topViews.firstOrNull() ?: shortcutViews.firstOrNull() ?: gridViews.firstOrNull() ?: mediaHub?.homeRows?.firstOrNull()?.firstOrNull() ?: topAddButton ?: centralButton
     private fun lp(w: Int,h: Int,l: Int=0,t: Int=0,r: Int=0,b: Int=0) =
         LinearLayout.LayoutParams(w,h).apply { setMargins(dp(l),dp(t),dp(r),dp(b)) }
 
@@ -424,6 +440,7 @@ class MainActivity : Activity() {
         favoriteStrip = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER
             clipChildren = false; clipToPadding = false
+            setOnScrollChangeListener { _,_,_,_,_->requestArtworkUpdate() }
         }
         favorites = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; clipChildren = false; clipToPadding = false
@@ -487,7 +504,7 @@ class MainActivity : Activity() {
         ui.focus(view,key,14,transparent) { focused ->
             if (focused) {
                 lastHomeFocus = key
-                if (key.startsWith("grid:") || key.startsWith("top:") || key.startsWith("shortcut:") || key.startsWith("media-home:")) view.post {
+                if (key.startsWith("grid:") || key.startsWith("top:") || key.startsWith("shortcut:") || key.startsWith("media-home:") || key=="top-action:add") view.post {
                     if (view.hasFocus() && panel == null) {
                         // Include the focus outline in the native scroll request.
                         view.requestRectangleOnScreen(Rect(0, -dp(5), view.width, view.height + dp(5)), economy())
@@ -498,7 +515,7 @@ class MainActivity : Activity() {
         homeViews[key] = view
     }
 
-    private fun appTile(app: TvApp,large: Boolean,widthDp: Int): View {
+    private fun appTile(app: TvApp,large: Boolean,widthDp: Int,picker: Boolean=false): View {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
             clipChildren = false; clipToPadding = false
@@ -506,15 +523,25 @@ class MainActivity : Activity() {
             contentDescription = app.name
         }
         val artHeight = (widthDp-10)*9/16
-        val surface = FrameLayout(this).apply {
+        val surface = object:FrameLayout(this) {
+            override fun onMeasure(widthMeasureSpec: Int,heightMeasureSpec: Int) {
+                if(picker) super.onMeasure(widthMeasureSpec,View.MeasureSpec.makeMeasureSpec(View.MeasureSpec.getSize(widthMeasureSpec)*9/16,View.MeasureSpec.EXACTLY))
+                else super.onMeasure(widthMeasureSpec,heightMeasureSpec)
+            }
+        }.apply {
             background = ui.cardSurface(10)
             clipToOutline = true
         }
-        val fallback = ui.text(app.name.take(1).uppercase(locale),27f,ui.muted,true).apply { gravity = Gravity.CENTER }
+        val fallback = ImageView(this).apply {
+            setImageDrawable(TvIcon(TvIcon.Kind.GRID,ui.quiet));setPadding(dp(24),dp(24),dp(24),dp(24))
+            importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
         surface.addView(fallback,FrameLayout.LayoutParams(-1,-1))
         val image = ImageView(this).apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
         surface.addView(image,FrameLayout.LayoutParams(-1,-1))
-        artworkBindings.add(ArtworkBinding(card,image,fallback,app.component,large))
+        val binding=ArtworkBinding(card,image,fallback,app.component,large,picker=picker)
+        artworkBindings.add(binding)
+        artwork.peek(app.component)?.let { displayArtwork(binding,it) }
         if(app.packageName in pinnedApps()) surface.addView(ImageView(this).apply {
             setImageDrawable(TvIcon(TvIcon.Kind.PIN,ui.accent))
             background = ui.surface(ui.alpha(ui.base,238),6,ui.alpha(ui.accent,45))
@@ -522,9 +549,10 @@ class MainActivity : Activity() {
         },FrameLayout.LayoutParams(dp(23),dp(23),Gravity.TOP or Gravity.END).apply {
             setMargins(0,dp(5),dp(5),0)
         })
-        card.addView(surface,lp(-1,dp(artHeight)))
+        card.addView(surface,lp(-1,if(picker) -2 else dp(artHeight)))
+        if(picker) card.addView(ui.text(app.name,11.5f,medium=true).apply { maxLines=1;ellipsize=TextUtils.TruncateAt.END },lp(-1,ui.height(20),2,7,2))
         val key = (if(large) "top:" else "grid:") + app.packageName
-        styleHome(card,key,true)
+        if(!picker) styleHome(card,key,true)
         if (moving?.packageName == app.packageName && moving?.lane == (if (large) "top" else "grid")) {
             card.background = ui.surface(ui.alpha(ui.accent,65), 14, ui.accent)
         }
@@ -533,72 +561,89 @@ class MainActivity : Activity() {
         return card
     }
 
-    /** Rebuild only the row whose order/content changed, keeping the other views alive. */
+    private fun reusableTile(app: TvApp,large: Boolean,width: Int): View {
+        val key=(if(large) "top:" else "grid:")+app.packageName
+        val movingHere=moving?.let { it.packageName==app.packageName && it.lane==if(large) "top" else "grid" }==true
+        val spec=listOf(app.name,app.component.flattenToString(),width,app.packageName in pinnedApps(),movingHere).toString()
+        val old=homeViews[key]
+        if(old!=null && tileSpecs[key]==spec) return old
+        tileSpecs[key]=spec
+        return appTile(app,large,width)
+    }
+
+    private fun addTopTile(width: Int): View {
+        if(topAddButton!=null && topAddWidth==width) return topAddButton!!
+        topAddWidth=width
+        return LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL;setPadding(dp(5),dp(5),dp(5),dp(5));contentDescription="Adicionar aplicativo aos mais utilizados"
+            val surface=LinearLayout(this@MainActivity).apply {
+                orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER;background=ui.cardSurface(10)
+                addView(ui.iconBadge(TvIcon.Kind.PLUS,30),lp(dp(30),dp(30)))
+                addView(ui.text("Adicionar",10f,ui.muted,true),lp(-2,-2,0,5))
+            }
+            addView(surface,lp(-1,dp((width-10)*9/16)))
+            styleHome(this,"top-action:add",true);setOnClickListener { showTopPicker() }
+        }.also { topAddButton=it }
+    }
+
+    /** Membership, order and image lifetime are independent. Reordering reuses existing cards. */
     private fun renderApps() {
         val keep = (currentFocus?.tag as? String)?.takeIf { panel == null } ?: lastHomeFocus
-        val hidden = hiddenApps()
-        val visible = ordered(mediaApps.filterNot { it.packageName in hidden }, "grid")
-        val selected = ordered(rankedApps(visible), "top").take(prefs.getInt("top_count",7).coerceIn(5,10))
+        val visible = ordered(mediaApps.filterNot { it.packageName in hiddenApps() }, "grid")
+        val selected = topApps(visible)
         val scale = prefs.getInt("icon_scale",1)
         val pinKey = pinnedApps().sorted().joinToString()
         val moveKey = moving?.let { it.lane + it.packageName } ?: ""
-        val nextTop = selected.joinToString { it.packageName } + "|" + scale + "|" + pinKey + "|" + catalogRevision + "|" + if (moving?.lane == "top") moveKey else ""
-        val nextGrid = visible.joinToString { it.packageName + it.name } + "|" + scale + "|" + pinKey + "|" + catalogRevision + "|" + if (moving?.lane == "grid") moveKey else ""
+        fun ids(apps:List<TvApp>)=apps.joinToString { it.packageName+it.name+it.component.flattenToString() }
+        val nextTop = ids(selected)+"|"+scale+"|"+pinKey+"|"+if(moving?.lane=="top") moveKey else ""
+        val nextGrid = ids(visible)+"|"+scale+"|"+pinKey+"|"+if(moving?.lane=="grid") moveKey else ""
         val changed = firstData || topSignature != nextTop || gridSignature != nextGrid
         val topWidth = when(scale) { 0 -> 134; 2 -> 174; else -> 152 }
-        if(firstData || topSignature != nextTop) {
-            topSignature = nextTop
-            topViews.forEach { homeViews.remove(it.tag.toString()) }; topViews.clear()
-            favorites.removeAllViews()
-            for(app in selected) {
-                val tile = appTile(app,true,topWidth)
-                topViews.add(tile)
-                favorites.addView(tile,lp(dp(topWidth),-2,0,0,10))
+        fun retire(old:List<View>,current:List<View>) {
+            old.filterNot { it in current }.forEach { view ->
+                val key=view.tag.toString()
+                if(homeViews[key]===view) { homeViews.remove(key);tileSpecs.remove(key) }
             }
-            if(selected.isEmpty()) favorites.addView(ui.text("Seus aplicativos mais usados aparecerão aqui.",12f,ui.muted),
-                lp(-1,dp(110),8,14))
         }
-        val columns = when(scale) { 0 -> 6; 2 -> 4; else -> 5 }
-        if(firstData || gridSignature != nextGrid) {
-            gridSignature = nextGrid
-            gridViews.forEach { homeViews.remove(it.tag.toString()) }; gridViews.clear()
-            appGrid.removeAllViews()
-            val tileWidth = (resources.configuration.screenWidthDp-safeHorizontal()*2-8-(columns-1)*12)/columns
+        if(firstData || topSignature != nextTop) {
+            topSignature=nextTop
+            val previous=topViews.toList();favorites.removeAllViews();topViews.clear()
+            selected.forEach { app ->
+                val tile=reusableTile(app,true,topWidth)
+                (tile.parent as? ViewGroup)?.removeView(tile)
+                favorites.addView(tile,lp(dp(topWidth),-2,0,0,10));topViews.add(tile)
+            }
+            retire(previous,topViews)
+            val add=addTopTile(topWidth);(add.parent as? ViewGroup)?.removeView(add)
+            favorites.addView(add,lp(dp(topWidth),-2,0,0,10))
+        }
+        val columns=when(scale) {0->6;2->4;else->5}
+        if(firstData || gridSignature!=nextGrid) {
+            gridSignature=nextGrid
+            val previous=gridViews.toList();appGrid.removeAllViews();gridViews.clear()
+            val tileWidth=(resources.configuration.screenWidthDp-safeHorizontal()*2-8-(columns-1)*12)/columns
             for(group in visible.chunked(columns)) {
-                val row = LinearLayout(this).apply { clipChildren = false; clipToPadding = false }
-                for((index,app) in group.withIndex()) {
-                    val tile = appTile(app,false,tileWidth)
-                    gridViews.add(tile)
-                    row.addView(tile,LinearLayout.LayoutParams(0,-2,1f).apply {
-                        if(index < columns-1) rightMargin = dp(12)
-                    })
+                val row=LinearLayout(this).apply { clipChildren=false;clipToPadding=false }
+                group.forEachIndexed { index,app ->
+                    val tile=reusableTile(app,false,tileWidth);(tile.parent as? ViewGroup)?.removeView(tile)
+                    row.addView(tile,LinearLayout.LayoutParams(0,-2,1f).apply { if(index<columns-1) rightMargin=dp(12) });gridViews.add(tile)
                 }
-                repeat(columns-group.size) { index ->
-                    row.addView(View(this),LinearLayout.LayoutParams(0,1,1f).apply {
-                        if(group.size+index < columns-1) rightMargin = dp(12)
-                    })
-                }
+                repeat(columns-group.size) { index ->row.addView(View(this),LinearLayout.LayoutParams(0,1,1f).apply { if(group.size+index<columns-1) rightMargin=dp(12) }) }
                 appGrid.addView(row,lp(-1,-2,0,0,0,10))
             }
-            if(visible.isEmpty()) {
-                val empty = ui.text("Instale seus aplicativos de streaming ou use a central para abrir a TV.",13f,ui.muted)
-                appGrid.addView(empty,lp(-1,-2,8,8,8,15))
-            }
+            retire(previous,gridViews)
+            if(visible.isEmpty()) appGrid.addView(ui.text("Instale seus aplicativos de streaming ou use a central para abrir a TV.",13f,ui.muted),lp(-1,-2,8,8,8,15))
         }
-        setTextIfChanged(appCount,visible.size.toString() + if(visible.size == 1) " aplicativo" else " aplicativos")
-        setTextIfChanged(orderLabel, if (orderFor("top").isEmpty()) "Pelo seu uso" else "Sua ordem")
-        mediaHub?.appsChanged()
-        wireNavigation(columns)
-        homeLayer.post { requestArtworkUpdate() }
-        val initial = firstData
-        firstData = false
-        if(changed && panel == null) {
+        setTextIfChanged(appCount,visible.size.toString()+if(visible.size==1) " aplicativo" else " aplicativos")
+        setTextIfChanged(orderLabel,if(orderFor("top").isEmpty()) "Pelo seu uso" else "Seu uso e sua ordem")
+        mediaHub?.appsChanged();wireNavigation(columns);homeLayer.post { requestArtworkUpdate() }
+        val initial=firstData;firstData=false
+        if(changed && panel==null) {
             val previousFocus=currentFocus
-            val target = if(initial && !userNavigated) firstHomeView()
-                else homeViews[keep] ?: firstHomeView()
+            val target=if(initial && !userNavigated) firstHomeView() else homeViews[keep] ?: firstHomeView()
             homeLayer.post {
-                if(!isDestroyed && panel == null && target?.isAttachedToWindow == true &&
-                    (currentFocus == null || currentFocus === previousFocus || currentFocus?.isAttachedToWindow == false)) target.requestFocus()
+                if(!isDestroyed && panel==null && target.isAttachedToWindow &&
+                    (currentFocus==null || currentFocus===previousFocus || currentFocus?.isAttachedToWindow==false)) target.requestFocus()
             }
         }
     }
@@ -610,38 +655,61 @@ class MainActivity : Activity() {
         }
     }
 
-    /** Only visible cards own a bitmap; offscreen rows return to the bounded cache. */
+    private fun artworkVisible(binding: ArtworkBinding): Boolean = foreground &&
+        (if(activePanel=="top-picker") binding.picker else !binding.picker) &&
+        binding.image.isShown && binding.image.getGlobalVisibleRect(visibleRect)
+
+    private fun clearArtwork(binding:ArtworkBinding) {
+        if(binding.hasImage) {
+            binding.image.setImageDrawable(null);binding.placeholder.visibility=View.VISIBLE
+            binding.art=null;binding.loadedKey="";binding.hasImage=false
+        }
+    }
+
+    private fun displayArtwork(binding:ArtworkBinding,art:Artwork) {
+        if(binding.art?.bitmap!==art.bitmap) {
+            binding.image.scaleType=ImageView.ScaleType.FIT_CENTER
+            val padding=if(art.banner) 0 else dp(if(binding.large)14 else 16)
+            binding.image.setPadding(padding,padding,padding,padding);binding.image.setImageBitmap(art.bitmap)
+        }
+        binding.art=art;binding.loadedKey=artwork.revision(binding.component)
+        binding.placeholder.visibility=View.GONE;binding.hasImage=true
+    }
+
+    private fun releaseEvictedArtwork(component:ComponentName,bitmap:android.graphics.Bitmap) {
+        val layingOut=::frame.isInitialized && frame.isLayoutRequested
+        artworkBindings.filter { it.component==component && it.art?.bitmap===bitmap }.forEach {
+            if(!foreground || !layingOut && !artworkVisible(it)) clearArtwork(it)
+        }
+    }
+
+    /** Leaving the viewport is not an eviction. Cached cards keep their pixels while the user scrolls. */
     private fun refreshVisibleArtwork() {
-        // Grid cards still have a row parent after that whole row is removed.
-        // Release those bindings as well, especially while a user rearranges apps.
-        artworkBindings.removeAll { it.card.rootView !== frame.rootView }
-        val nearby=ArrayList<ArtworkBinding>()
-        val position=IntArray(2)
+        if(frame.isLayoutRequested || listScroll.isLayoutRequested) { requestArtworkUpdate();return }
+        artworkBindings.removeAll { it.card.rootView!==frame.rootView }
+        artworkBindings.forEach { it.visible=artworkVisible(it) }
+        artwork.setVisible(artworkBindings.filter { it.visible }.map { it.component }.toSet())
+        val nearby=ArrayList<ArtworkBinding>();val position=IntArray(2)
         for(binding in artworkBindings) {
-            binding.visible = binding.image.isShown && binding.image.getGlobalVisibleRect(visibleRect)
             if(!binding.visible) {
-                if(binding.hasImage) {
-                    binding.image.setImageDrawable(null)
-                    binding.placeholder.visibility = View.VISIBLE
-                    binding.hasImage = false
-                }
-                if(binding.card.isShown) {
+                if(binding.hasImage && binding.art?.bitmap?.let { artwork.contains(it) }!=true) clearArtwork(binding)
+                if(binding.card.isShown && binding.picker==(activePanel=="top-picker")) {
                     binding.card.getLocationOnScreen(position)
                     if(position[0]+binding.card.width>=-binding.card.width && position[0]<=resources.displayMetrics.widthPixels+binding.card.width &&
                         position[1]+binding.card.height>=0 && position[1]<=resources.displayMetrics.heightPixels+binding.card.height) nearby.add(binding)
                 }
-            } else if(!binding.loading && !binding.hasImage) {
-                binding.loading = true
+                continue
+            }
+            val key=artwork.revision(binding.component)
+            if(binding.hasImage && binding.loadedKey==key || binding.loading) continue
+            val cached=artwork.peek(binding.component)
+            if(cached!=null) { displayArtwork(binding,cached);continue }
+            if(binding.attemptedKey!=key || System.currentTimeMillis()-binding.attemptedAt>=30000L) {
+                binding.loading=true;binding.attemptedKey=key;binding.attemptedAt=System.currentTimeMillis()
                 artwork.load(binding.component) { art ->
-                    binding.loading = false
-                    if(art != null && binding.visible && binding.card.isAttachedToWindow && !isDestroyed) {
-                        binding.placeholder.visibility = View.GONE
-                        binding.image.scaleType = ImageView.ScaleType.FIT_CENTER
-                        val padding = if(art.banner) 0 else dp(if(binding.large) 14 else 16)
-                        binding.image.setPadding(padding,padding,padding,padding)
-                        binding.image.setImageBitmap(art.bitmap)
-                        binding.hasImage = true
-                    }
+                    binding.loading=false
+                    if(art!=null && foreground && binding.card.isAttachedToWindow && !isDestroyed && (artworkVisible(binding) || artwork.contains(art.bitmap))) displayArtwork(binding,art)
+                    if(art==null && key!=artwork.revision(binding.component)) requestArtworkUpdate()
                 }
             }
         }
@@ -649,10 +717,11 @@ class MainActivity : Activity() {
     }
 
     private fun wireNavigation(columns: Int) {
+        val topLane=topViews+listOfNotNull(topAddButton)
         val rows=mediaHub?.homeRows.orEmpty()
         val firstMedia=rows.firstOrNull().orEmpty()
         val lastMedia=rows.lastOrNull().orEmpty()
-        val first = shortcutViews.firstOrNull() ?: topViews.firstOrNull() ?: firstMedia.firstOrNull() ?: gridViews.firstOrNull() ?: centralButton
+        val first = shortcutViews.firstOrNull() ?: topLane.firstOrNull() ?: firstMedia.firstOrNull() ?: gridViews.firstOrNull() ?: centralButton
         val visibleNav=navViews.filter { it.visibility==View.VISIBLE }
         visibleNav.forEachIndexed { i,v ->
             v.nextFocusLeftId = visibleNav[(i-1).coerceAtLeast(0)].id
@@ -663,16 +732,16 @@ class MainActivity : Activity() {
             v.nextFocusLeftId = shortcutViews[(i-1).coerceAtLeast(0)].id
             v.nextFocusRightId = shortcutViews[(i+1).coerceAtMost(shortcutViews.lastIndex)].id
             v.nextFocusUpId = centralButton.id
-            v.nextFocusDownId = topViews.getOrNull(i.coerceAtMost(topViews.lastIndex))?.id ?: firstMedia.firstOrNull()?.id ?: gridViews.firstOrNull()?.id ?: v.id
+            v.nextFocusDownId = topLane.getOrNull(i.coerceAtMost(topLane.lastIndex))?.id ?: firstMedia.firstOrNull()?.id ?: gridViews.firstOrNull()?.id ?: v.id
         }
-        topViews.forEachIndexed { i,v ->
+        topLane.forEachIndexed { i,v ->
             v.nextFocusUpId = shortcutViews.getOrNull(i.coerceAtMost(shortcutViews.lastIndex))?.id ?: centralButton.id
-            v.nextFocusLeftId = topViews[(i-1).coerceAtLeast(0)].id
-            v.nextFocusRightId = topViews[(i+1).coerceAtMost(topViews.lastIndex)].id
+            v.nextFocusLeftId = topLane[(i-1).coerceAtLeast(0)].id
+            v.nextFocusRightId = topLane[(i+1).coerceAtMost(topLane.lastIndex)].id
             v.nextFocusDownId = firstMedia.getOrNull(i.coerceAtMost(firstMedia.lastIndex))?.id ?: gridViews.getOrNull(i.coerceAtMost(gridViews.lastIndex))?.id ?: v.id
         }
         rows.forEachIndexed { rowIndex,row->row.forEachIndexed { index,v->
-            val before=if(rowIndex>0) rows[rowIndex-1] else topViews.ifEmpty { shortcutViews }
+            val before=if(rowIndex>0) rows[rowIndex-1] else topLane.ifEmpty { shortcutViews }
             val after=if(rowIndex<rows.lastIndex) rows[rowIndex+1] else gridViews
             v.nextFocusLeftId=row[(index-1).coerceAtLeast(0)].id
             v.nextFocusRightId=row[(index+1).coerceAtMost(row.lastIndex)].id
@@ -695,9 +764,9 @@ class MainActivity : Activity() {
             if(!catalogWarmAttempted) {
                 catalogWarmAttempted=true
                 val saved=catalogCache.read()
-                saved.forEach { artwork.register(it.component,it.revision) }
                 if(saved.isNotEmpty()) handler.post {
                     if(!isDestroyed && !isFinishing && mediaApps.isEmpty()) {
+                        saved.forEach { artwork.register(it.component,it.revision) }
                         appliedCatalogSignature=saved.toString()
                         mediaApps=saved.map { TvApp(it.name,it.component.packageName,it.component) };renderApps()
                     }
@@ -705,11 +774,13 @@ class MainActivity : Activity() {
             }
             val installed = try { detectInstalledApps() } catch(_: Exception) { null }
             val snapshot=scannedSnapshot
+            val infos=scannedInfos
             handler.post {
                 scanning = false
                 if(isDestroyed || isFinishing) return@post
                 if(installed != null) {
-                    if(appliedCatalogSignature!=snapshot.toString()) { appliedCatalogSignature=snapshot.toString();catalogRevision++ }
+                    snapshot.forEach { artwork.register(it.component,it.revision,infos[it.component.packageName]) }
+                    appliedCatalogSignature=snapshot.toString()
                     mediaApps = installed; renderApps()
                 }
                 else {
@@ -812,6 +883,7 @@ class MainActivity : Activity() {
         homeLayer.descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
         homeLayer.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
         (homeViews[returnFocus]?.takeIf { it.isShown } ?: firstHomeView()).requestFocus()
+        requestArtworkUpdate()
     }
 
     private fun showActionCenter(focus: String? = null) {
@@ -844,7 +916,7 @@ class MainActivity : Activity() {
         sheet.row(PanelAction("action:storage","Armazenamento","Gerenciar espaço na TV",TvIcon.Kind.STORAGE) { openStorageSettings() })
         sheet.row(PanelAction("action:hidden","Aplicativos ocultos",hiddenApps().size.toString() + " ocultos por você",TvIcon.Kind.EYE) { showHiddenApps() })
         sheet.row(PanelAction("action:refresh","Atualizar aplicativos","Procurar instalações e alterações",TvIcon.Kind.REFRESH) {
-            artwork.invalidate(); topSignature = ""; gridSignature = ""; refresh()
+            refresh()
             Toast.makeText(this,"Atualizando aplicativos…",Toast.LENGTH_SHORT).show()
         })
         sheet.focusAction(focus)
@@ -1381,10 +1453,41 @@ class MainActivity : Activity() {
 
     private fun ordered(items: List<TvApp>, lane: String) = AppOrdering.apply(items, orderFor(lane)) { it.packageName }
 
+    private fun topApps(visible:List<TvApp>) = TopApps.select(rankedApps(visible),pinnedApps(),prefs.getInt("top_count",7),orderFor("top")) { it.packageName }
+
     private fun laneApps(lane: String): List<TvApp> {
-        val visible = mediaApps.filterNot { it.packageName in hiddenApps() }
-        return if (lane == "top") ordered(rankedApps(visible), "top")
-            .take(prefs.getInt("top_count", 7).coerceIn(5, 10)) else ordered(visible, "grid")
+        val visible=mediaApps.filterNot { it.packageName in hiddenApps() }
+        return if(lane=="top") topApps(visible) else ordered(visible,"grid")
+    }
+
+    private fun showTopPicker() {
+        val sheet=newPanel("Adicionar aplicativo","Escolha um aplicativo para manter na primeira fileira")
+        activePanel="top-picker";sheet.expand()
+        val choices=ordered(mediaApps.filterNot { it.packageName in hiddenApps() },"grid")
+        val columns=4
+        for(group in choices.chunked(columns)) {
+            val row=LinearLayout(this).apply { clipChildren=false;clipToPadding=false }
+            group.forEachIndexed { index,app ->
+                val card=appTile(app,false,180,picker=true)
+                sheet.register(card,"top-picker:"+app.packageName,true)
+                card.contentDescription=app.name+if(app.packageName in pinnedApps()) ". Já fixado" else ". Adicionar aos mais utilizados"
+                card.setOnLongClickListener(null);card.isLongClickable=false
+                card.setOnClickListener {
+                    val current=laneApps("top").map { it.packageName }
+                    val pins=pinnedApps()+app.packageName
+                    val editor=prefs.edit().putStringSet("pinned_apps",pins)
+                    if(app.packageName !in current) editor.putInt("top_count",maxOf(prefs.getInt("top_count",7),current.size+1).coerceAtMost(TopApps.MAX_COUNT))
+                    editor.putString("order.top",AppOrdering.encode(current.filterNot { it==app.packageName }+app.packageName)).apply()
+                    returnFocus="top:"+app.packageName;renderApps();closePanel()
+                }
+                row.addView(card,LinearLayout.LayoutParams(0,-2,1f).apply { if(index<columns-1) rightMargin=dp(10) })
+            }
+            repeat(columns-group.size) { row.addView(View(this),LinearLayout.LayoutParams(0,1,1f)) }
+            sheet.content.addView(row,lp(-1,-2,0,0,0,10))
+        }
+        if(choices.isEmpty()) sheet.paragraph("Os aplicativos instalados aparecerão aqui.")
+        sheet.onScroll { requestArtworkUpdate() }
+        sheet.focusAction();sheet.post { requestArtworkUpdate() }
     }
 
     private fun startMoving(app: TvApp, lane: String, delta: Int) {
@@ -1514,10 +1617,9 @@ class MainActivity : Activity() {
                 val info=manager.getPackageInfo(app.packageName,0)
                 "${info.lastUpdateTime}:${if(Build.VERSION.SDK_INT>=28) info.longVersionCode else info.versionCode.toLong()}"
             } catch(_:Exception) { "${System.currentTimeMillis()}" }
-            val info=activityInfos[app.packageName]
-            artwork.register(app.component,revision,info)
             CachedTvApp(app.name,app.component,revision)
         }
+        scannedInfos=activityInfos.toMap()
         return sorted
     }
 

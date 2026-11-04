@@ -1,12 +1,11 @@
-# TCL Light 0.13.0
+# TCL Light 0.14.0
 
-Carregamento mais ágil dos aplicativos e das miniaturas, com a mesma assinatura permanente.
+Corrige o retorno das letras e o reaparecimento repetido dos ícones durante a navegação.
 
-- Lista de aplicativos recuperada do cache local enquanto a TV verifica instalações e alterações em segundo plano.
-- Ícones de Mais utilizados e Seus aplicativos compartilhados em memória e persistidos no tamanho do cartão; atualização de versão troca a chave do cache.
-- Capas compartilhadas entre Continuar assistindo, Minha lista e busca, com deduplicação de downloads e cache local. Leituras locais não ficam atrás de downloads lentos.
-- Prioridade para cartões visíveis e pré-carregamento limitado dos próximos cartões.
-- Corrigida a limpeza indevida de imagens quando a Home ficava oculta; os limites e a liberação em pressão real de memória continuam ativos.
-- Interface, organização, progresso de Continuar assistindo e escolha de Home preservados.
+- Ícones permanecem nos cartões ao rolar e ao retornar à Home. Reordenações reutilizam os cartões, e a leitura de um catálogo sem alterações preserva a interface.
+- Imagens visíveis são protegidas; o cache libera imagens fora da tela dentro dos limites de memória. Banners menores e reaproveitamento do cache local anterior.
+- A ordem manual deixa de bloquear novos aplicativos em Mais utilizados. A contagem de uso é aplicada ao voltar ao launcher.
+- Cartão Adicionar no fim de Mais utilizados, com grade para escolher e fixar um aplicativo sem precisar abri-lo.
+- As inclusões manuais permanecem na fileira e entram no backup. Continuar assistindo e os demais recursos são preservados.
 
-Instale por cima da 0.7.0 ou posterior, sem desinstalar. Ou use Central de ações → Atualizar TCL Light. A primeira consulta de uma capa ainda depende da disponibilidade do aplicativo/servidor que a fornece.
+Instale por cima da 0.7.0 ou posterior, sem desinstalar. A assinatura permanente continua a mesma. Também disponível em Central de ações → Atualizar TCL Light.
