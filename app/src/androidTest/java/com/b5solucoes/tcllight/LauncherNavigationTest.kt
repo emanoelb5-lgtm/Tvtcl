@@ -275,6 +275,40 @@ class LauncherNavigationTest {
         assertTrue(target in laneOrder("top"));assertTrue(other in laneOrder("top"))
     }
 
+    @Test fun testFavoritesHeaderAddIsVisibleAndReachableWithoutScrollingTheRow() {
+        val ids=(0 until 20).map { "sample.favorites.$it" };seedOrderCatalog(ids)
+        onUi {
+            assertEquals("Aplicativos preferidos",(find("favorites:title") as TextView).text.toString())
+            val action=find("top-action:choose")!!;val bounds=android.graphics.Rect()
+            assertTrue(action.getGlobalVisibleRect(bounds));assertEquals(action.width,bounds.width())
+            find("nav:central")!!.requestFocus()
+        }
+        key(KeyEvent.KEYCODE_DPAD_DOWN)
+        assertEquals("top-action:choose",onUi { screen.currentFocus?.tag })
+        key(KeyEvent.KEYCODE_DPAD_CENTER)
+        await { find("top-picker:"+ids.last())!=null }
+        click("top-picker:"+ids.last())
+        await { find("launcher-panel")==null && ids.last() in laneOrder("top") }
+        assertTrue(ids.last() in instrumentation.targetContext.getSharedPreferences("launcher",0).getStringSet("pinned_apps",emptySet())!!)
+    }
+
+    @Test fun testAddCardAtTheEndOfALongFavoritesRowIsFullyVisibleByRemote() {
+        val ids=(0 until 20).map { "sample.longfavorites.$it" }
+        instrumentation.targetContext.getSharedPreferences("launcher",0).edit().putInt("top_count",20).putBoolean("eco_mode",true).commit()
+        seedOrderCatalog(ids)
+        val order=laneOrder("top")
+        onUi { find("top:"+order.first())!!.requestFocus() }
+        repeat(order.size) { key(KeyEvent.KEYCODE_DPAD_RIGHT) }
+        await { onUi { find("top-action:add")!!.hasFocus() } }
+        onUi {
+            val action=find("top-action:add")!!;val bounds=android.graphics.Rect()
+            assertTrue(action.getGlobalVisibleRect(bounds));assertEquals("O controle deve revelar o cartão inteiro",action.width,bounds.width())
+            assertEquals("top-action:add",(action.parent as ViewGroup).getChildAt((action.parent as ViewGroup).childCount-1).tag)
+        }
+        key(KeyEvent.KEYCODE_DPAD_CENTER)
+        await { find("top-picker:"+ids.first())!=null }
+    }
+
     @Test fun testScrolledCardsStayInsideViewportAtEveryCardSize() {
         val ids = (0 until 42).map { "sample.app.$it" }
         val header = find("home:header")!!

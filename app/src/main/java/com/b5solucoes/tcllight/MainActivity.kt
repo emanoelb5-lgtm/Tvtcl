@@ -68,7 +68,6 @@ class MainActivity : Activity() {
     private lateinit var deviceLabel: TextView
     private lateinit var weatherLabel: TextView
     private lateinit var weatherIcon: ImageView
-    private lateinit var orderLabel: TextView
     private lateinit var controlHint: TextView
     private lateinit var timeLabel: TextView
     private lateinit var dateLabel: TextView
@@ -129,6 +128,7 @@ class MainActivity : Activity() {
     private val homeViews = LinkedHashMap<String,View>()
     private val navViews = ArrayList<View>()
     private val topViews = ArrayList<View>()
+    private lateinit var favoritesAddButton:View
     private var topAddButton:View?=null
     private var topAddWidth=0
     private val tileSpecs=HashMap<String,String>()
@@ -434,9 +434,15 @@ class MainActivity : Activity() {
         shortcutArea.addView(sourcesScroll,lp(-1,-2))
         column.addView(shortcutArea,lp(-1,-2,0,0,0,8))
         renderShortcuts()
-        val usedHeader = section("Mais utilizados","Pelo seu uso")
-        orderLabel = (usedHeader as LinearLayout).getChildAt(1) as TextView
-        column.addView(usedHeader,lp(-1,ui.height(26),0,0,3,5))
+        val usedHeader=section("Aplicativos preferidos","") as LinearLayout
+        usedHeader.tag="favorites:header"
+        usedHeader.getChildAt(0).tag="favorites:title"
+        usedHeader.removeViewAt(1)
+        favoritesAddButton=navControl("top-action:choose",TvIcon.Kind.PLUS,"Adicionar aplicativo aos preferidos",
+            ui.text("Adicionar aplicativo",11f,medium=true)) { showTopPicker() }
+        favoritesAddButton.setPadding(dp(10),0,dp(10),0)
+        usedHeader.addView(favoritesAddButton,lp(dp(196),ui.height(30)))
+        column.addView(usedHeader,lp(-1,ui.height(36),0,0,3,5))
         favoriteStrip = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER
             clipChildren = false; clipToPadding = false
@@ -504,7 +510,7 @@ class MainActivity : Activity() {
         ui.focus(view,key,14,transparent) { focused ->
             if (focused) {
                 lastHomeFocus = key
-                if (key.startsWith("grid:") || key.startsWith("top:") || key.startsWith("shortcut:") || key.startsWith("media-home:") || key=="top-action:add") view.post {
+                if (key.startsWith("grid:") || key.startsWith("top:") || key.startsWith("shortcut:") || key.startsWith("media-home:") || key.startsWith("top-action:")) view.post {
                     if (view.hasFocus() && panel == null) {
                         // Include the focus outline in the native scroll request.
                         view.requestRectangleOnScreen(Rect(0, -dp(5), view.width, view.height + dp(5)), economy())
@@ -575,11 +581,11 @@ class MainActivity : Activity() {
         if(topAddButton!=null && topAddWidth==width) return topAddButton!!
         topAddWidth=width
         return LinearLayout(this).apply {
-            orientation=LinearLayout.VERTICAL;setPadding(dp(5),dp(5),dp(5),dp(5));contentDescription="Adicionar aplicativo aos mais utilizados"
+            orientation=LinearLayout.VERTICAL;setPadding(dp(5),dp(5),dp(5),dp(5));contentDescription="Adicionar aplicativo aos aplicativos preferidos"
             val surface=LinearLayout(this@MainActivity).apply {
                 orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER;background=ui.cardSurface(10)
                 addView(ui.iconBadge(TvIcon.Kind.PLUS,30),lp(dp(30),dp(30)))
-                addView(ui.text("Adicionar",10f,ui.muted,true),lp(-2,-2,0,5))
+                addView(ui.text("Adicionar aplicativo",10f,ui.muted,true).apply { maxLines=1;ellipsize=TextUtils.TruncateAt.END },lp(-2,-2,3,5,3))
             }
             addView(surface,lp(-1,dp((width-10)*9/16)))
             styleHome(this,"top-action:add",true);setOnClickListener { showTopPicker() }
@@ -635,7 +641,6 @@ class MainActivity : Activity() {
             if(visible.isEmpty()) appGrid.addView(ui.text("Instale seus aplicativos de streaming ou use a central para abrir a TV.",13f,ui.muted),lp(-1,-2,8,8,8,15))
         }
         setTextIfChanged(appCount,visible.size.toString()+if(visible.size==1) " aplicativo" else " aplicativos")
-        setTextIfChanged(orderLabel,if(orderFor("top").isEmpty()) "Pelo seu uso" else "Seu uso e sua ordem")
         mediaHub?.appsChanged();wireNavigation(columns);homeLayer.post { requestArtworkUpdate() }
         val initial=firstData;firstData=false
         if(changed && panel==null) {
@@ -731,7 +736,7 @@ class MainActivity : Activity() {
         visibleNav.forEachIndexed { i,v ->
             v.nextFocusLeftId = visibleNav[(i-1).coerceAtLeast(0)].id
             v.nextFocusRightId = visibleNav[(i+1).coerceAtMost(visibleNav.lastIndex)].id
-            v.nextFocusDownId = first.id
+            v.nextFocusDownId = if(v===centralButton) favoritesAddButton.id else first.id
         }
         shortcutViews.forEachIndexed { i,v ->
             v.nextFocusLeftId = shortcutViews[(i-1).coerceAtLeast(0)].id
@@ -739,8 +744,12 @@ class MainActivity : Activity() {
             v.nextFocusUpId = centralButton.id
             v.nextFocusDownId = topLane.getOrNull(i.coerceAtMost(topLane.lastIndex))?.id ?: firstMedia.firstOrNull()?.id ?: gridViews.firstOrNull()?.id ?: v.id
         }
+        favoritesAddButton.nextFocusUpId=shortcutViews.lastOrNull()?.id ?: centralButton.id
+        favoritesAddButton.nextFocusDownId=topLane.firstOrNull()?.id ?: first.id
+        favoritesAddButton.nextFocusLeftId=favoritesAddButton.id
+        favoritesAddButton.nextFocusRightId=favoritesAddButton.id
         topLane.forEachIndexed { i,v ->
-            v.nextFocusUpId = shortcutViews.getOrNull(i.coerceAtMost(shortcutViews.lastIndex))?.id ?: centralButton.id
+            v.nextFocusUpId = favoritesAddButton.id
             v.nextFocusLeftId = topLane[(i-1).coerceAtLeast(0)].id
             v.nextFocusRightId = topLane[(i+1).coerceAtMost(topLane.lastIndex)].id
             v.nextFocusDownId = firstMedia.getOrNull(i.coerceAtMost(firstMedia.lastIndex))?.id ?: gridViews.getOrNull(i.coerceAtMost(gridViews.lastIndex))?.id ?: v.id
@@ -914,7 +923,7 @@ class MainActivity : Activity() {
         sheet.row(PanelAction("action:backup", "Backup local", "Salvar e restaurar sua configuração", TvIcon.Kind.STORAGE) { showBackup() })
         if (mediaApps.any { it.packageName == "com.android.vending" })
             sheet.row(PanelAction("action:store", "Google Play Store", "Instalar e atualizar seus aplicativos", TvIcon.Kind.GRID) { openPlayStore() })
-        sheet.row(PanelAction("action:customize","Personalizar aparência","Fundos, cartões e mais utilizados",TvIcon.Kind.PALETTE) { showPreferences() })
+        sheet.row(PanelAction("action:customize","Personalizar aparência","Fundos, cartões e aplicativos preferidos",TvIcon.Kind.PALETTE) { showPreferences() })
         sheet.row(PanelAction("action:settings","Configurações da TV","Imagem, áudio e sistema",TvIcon.Kind.CONTROLS) { openSettings() })
         sheet.row(PanelAction("action:bluetooth","Controles e Bluetooth","Parear acessórios",TvIcon.Kind.DEVICES) { openPeripheralSettings() })
         sheet.row(PanelAction("action:home","Tela inicial padrão",currentHome(),TvIcon.Kind.HOME) { showHomeAssistant() })
@@ -1088,15 +1097,15 @@ class MainActivity : Activity() {
         },TvIcon.Kind.SIZE) {
             choose("Tamanho dos cartões",arrayOf("Compacto","Normal","Grande"),"icon_scale",intArrayOf(0,1,2),"pref:size")
         })
-        sheet.row(PanelAction("pref:count","Mais utilizados",prefs.getInt("top_count",7).toString()+" aplicativos",TvIcon.Kind.GRID) {
-            choose("Mais utilizados",arrayOf("5 aplicativos","7 aplicativos","10 aplicativos"),
+        sheet.row(PanelAction("pref:count","Aplicativos preferidos",prefs.getInt("top_count",7).toString()+" aplicativos",TvIcon.Kind.GRID) {
+            choose("Aplicativos preferidos",arrayOf("5 aplicativos","7 aplicativos","10 aplicativos"),
                 "top_count",intArrayOf(5,7,10),"pref:count")
         })
         sheet.row(PanelAction("pref:eco","Modo leve",if(economy()) "Ativado" else "Desativado",
             TvIcon.Kind.LEAF,economy()) { toggleEconomy(); showPreferences("pref:eco") })
         sheet.paragraph("O modo leve mantém o fundo fixo e remove as animações de foco.")
         sheet.row(PanelAction("pref:hidden","Aplicativos ocultos","Restaurar na tela inicial",TvIcon.Kind.EYE) { showHiddenApps(true) })
-        sheet.row(PanelAction("pref:order","Restaurar organização","Mais utilizados pelo uso; aplicativos em ordem alfabética",TvIcon.Kind.REFRESH) {
+        sheet.row(PanelAction("pref:order","Restaurar organização","Aplicativos preferidos pelo uso; aplicativos em ordem alfabética",TvIcon.Kind.REFRESH) {
             prefs.edit().remove("order.top").remove("order.grid").apply()
             renderApps(); showPreferences("pref:order")
         })
@@ -1419,15 +1428,15 @@ class MainActivity : Activity() {
 
     private fun showAppMenu(app: TvApp, lane: String) {
         val pin = app.packageName in pinnedApps()
-        val sheet = newPanel(app.name,if (lane == "top") "Organizar os mais utilizados" else "Organizar seus aplicativos")
+        val sheet = newPanel(app.name,if (lane == "top") "Organizar os aplicativos preferidos" else "Organizar seus aplicativos")
         val ids = laneApps(lane).map { it.packageName }
         val index = ids.indexOf(app.packageName)
         val moves = ArrayList<PanelAction>()
         if (index > 0) moves.add(PanelAction("app:left","Mover à esquerda","Reorganizar pelo controle",TvIcon.Kind.LEFT) { startMoving(app, lane, -1) })
         if (index >= 0 && index < ids.lastIndex) moves.add(PanelAction("app:right","Mover à direita","Reorganizar pelo controle",TvIcon.Kind.RIGHT) { startMoving(app, lane, 1) })
         if (moves.isNotEmpty()) sheet.grid(moves)
-        sheet.row(PanelAction("app:pin",if(pin) "Desafixar" else "Fixar nos mais utilizados",
-            if(pin) "Remover fixação" else "Dar prioridade nos mais utilizados",TvIcon.Kind.PIN,pin) {
+        sheet.row(PanelAction("app:pin",if(pin) "Desafixar" else "Fixar nos aplicativos preferidos",
+            if(pin) "Remover fixação" else "Dar prioridade nos aplicativos preferidos",TvIcon.Kind.PIN,pin) {
             val all = pinnedApps().toMutableSet()
             if(pin) all.remove(app.packageName) else all.add(app.packageName)
             val edit = prefs.edit().putStringSet("pinned_apps",all)
@@ -1475,7 +1484,7 @@ class MainActivity : Activity() {
             group.forEachIndexed { index,app ->
                 val card=appTile(app,false,180,picker=true)
                 sheet.register(card,"top-picker:"+app.packageName,true)
-                card.contentDescription=app.name+if(app.packageName in pinnedApps()) ". Já fixado" else ". Adicionar aos mais utilizados"
+                card.contentDescription=app.name+if(app.packageName in pinnedApps()) ". Já fixado" else ". Adicionar aos aplicativos preferidos"
                 card.setOnLongClickListener(null);card.isLongClickable=false
                 card.setOnClickListener {
                     val current=laneApps("top").map { it.packageName }
