@@ -433,7 +433,6 @@ class MainActivity : Activity() {
         sourcesScroll.addView(shortcutStrip)
         shortcutArea.addView(sourcesScroll,lp(-1,-2))
         column.addView(shortcutArea,lp(-1,-2,0,0,0,8))
-        renderShortcuts()
         val usedHeader=section("Aplicativos preferidos","") as LinearLayout
         usedHeader.tag="favorites:header"
         usedHeader.getChildAt(0).tag="favorites:title"
@@ -478,6 +477,7 @@ class MainActivity : Activity() {
             { homeViews.keys.filter { it.startsWith("media-home:") }.toList().forEach { homeViews.remove(it) } },
             { wireNavigation(when(prefs.getInt("icon_scale",1)){0->6;2->4;else->5}) },::closePanel)
         mediaHub?.attachHome(mediaArea)
+        renderShortcuts()
         centralButton.requestFocus()
     }
 
