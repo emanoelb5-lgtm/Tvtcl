@@ -1,11 +1,11 @@
 {
   "schema": 1,
   "package": "com.b5solucoes.tcllight",
-  "version_name": "0.13.0",
-  "version_code": 13,
+  "version_name": "0.14.0",
+  "version_code": 14,
   "min_sdk": 23,
-  "apk_url": "https://github.com/emanoelb5-lgtm/Tvtcl/releases/download/v0.13.0/TCL-Light-0.13.0.apk",
-  "size_bytes": 575101,
-  "sha256": "848ddbb66262ca6bbb4bc497d34a35fea746b0af43c7cb8348adf28777434cd3",
+  "apk_url": "https://github.com/emanoelb5-lgtm/Tvtcl/releases/download/v0.14.0/TCL-Light-0.14.0.apk",
+  "size_bytes": 579197,
+  "sha256": "bf138327b75cf3a8d5f58a32f7b252a55498eae477db3f853355031ca95adf20",
   "certificate_sha256": "21e8b079624ca39fcb84817f2a711c46e474d2ccdb65f6e629e26fe153fdb688"
 }

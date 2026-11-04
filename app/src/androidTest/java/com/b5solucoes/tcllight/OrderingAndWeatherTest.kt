@@ -19,6 +19,22 @@ class OrderingAndWeatherTest {
         assertEquals(ids.toSet(), AppOrdering.move(ids, "b", -1).toSet())
     }
 
+    @Test fun manualPositionsDoNotFreezeTopMembershipAfterUsageChanges() {
+        val old=listOf("a","b","c","d","e")
+        val ranked=listOf("youtube","a","b","c","d","e","new")
+        val selected=TopApps.select(ranked,emptySet(),5,old) { it }
+        assertEquals(listOf("youtube","a","b","c","d"),selected)
+        assertFalse("An app below the usage cutoff must leave even if its old position was saved","e" in selected)
+    }
+
+    @Test fun allManuallyPinnedAppsRemainAvailableRegardlessOfUsageAndOldSlots() {
+        val ranked=(0..12).map { "app$it" };val pins=setOf("app9","app10","app11","app12","app8","app7")
+        val selected=TopApps.select(ranked,pins,5,ranked.take(5)) { it }
+        assertTrue(selected.containsAll(pins))
+        assertTrue("Mesmo com todos os lugares fixados, deve haver uma entrada por uso",ranked.first() in selected)
+        assertEquals(7,selected.size)
+    }
+
     @Test fun weatherRejectsBadDataAndDoesNotPresentExpiredValuesAsCurrent() {
         val now = System.currentTimeMillis()
         val value = WeatherSnapshot.parse("{\"current\":{\"temperature_2m\":28.4,\"weather_code\":63}}", now)

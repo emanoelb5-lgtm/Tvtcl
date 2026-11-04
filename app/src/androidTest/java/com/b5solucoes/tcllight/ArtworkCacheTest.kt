@@ -58,6 +58,29 @@ class ArtworkCacheTest {
         await(changed);assertEquals(2,calls.get())
     }
 
+    @Test fun memoryPressureEvictsOffscreenArtButKeepsTheVisibleAppReady() {
+        val visible=ComponentName("sample.visible","sample.visible.Main")
+        val released=ArrayList<ComponentName>()
+        val repository=AppArtwork(context,File(root,"pinned"),evicted={ component,_->released.add(component) }) { Artwork(bitmap(),true) }
+        cleanup.add { repository.close() }
+        val first=CountDownLatch(1)
+        ui { repository.setVisible(setOf(visible));repository.load(visible) { first.countDown() } };await(first)
+        val original=arrayOfNulls<Artwork>(1);ui { original[0]=repository.peek(visible) }
+        val others=(0 until 40).map { ComponentName("sample.other$it","sample.other$it.Main") }
+        val done=CountDownLatch(others.size)
+        ui { others.forEach { repository.load(it,false) { done.countDown() } } };await(done)
+        ui {
+            assertSame(original[0]!!.bitmap,repository.peek(visible)!!.bitmap)
+            assertTrue("O cenário deve exceder o limite e liberar imagens fora da tela",released.isNotEmpty())
+            repository.trim(true)
+            assertSame("O bitmap visível não pode ser descartado durante o uso",original[0]!!.bitmap,repository.peek(visible)!!.bitmap)
+            assertTrue(others.all { repository.peek(it)==null })
+            assertFalse(visible in released)
+            repository.setVisible(emptySet());repository.trim(true)
+            assertNull(repository.peek(visible));assertTrue(visible in released)
+        }
+    }
+
     @Test fun coversShareInFlightWorkAndRestoreFromDiskWithSourceOffline() {
         val calls=AtomicInteger();val gate=CountDownLatch(1)
         val first=MediaArtwork(context,main,File(root,"covers"),{

@@ -179,11 +179,100 @@ class LauncherNavigationTest {
             screen.onTrimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL)
             var immediate=false
             art.load(component) { assertNotNull("A cópia local deve sobreviver à pressão de memória",it);immediate=true;recovered.countDown() }
-            assertFalse("Pressão crítica deve liberar o cache em RAM",immediate)
+            assertTrue("A pressão de memória não deve apagar o ícone que continua na tela",immediate)
         }
         assertTrue(recovered.await(8,java.util.concurrent.TimeUnit.SECONDS))
         onUi { bindings.close();repository.close();screen.findViewById<ViewGroup>(android.R.id.content).removeView(overlay) }
         folder.deleteRecursively()
+    }
+
+    private fun imageFor(tag:String):android.widget.ImageView = onUi {
+        val card=find(tag)!!
+        val all=MainActivity::class.java.getDeclaredField("artworkBindings").apply { isAccessible=true }.get(screen) as List<*>
+        val binding=all.first { it!!.javaClass.getDeclaredField("card").apply { isAccessible=true }.get(it)===card }!!
+        binding.javaClass.getDeclaredField("image").apply { isAccessible=true }.get(binding) as android.widget.ImageView
+    }
+
+    @Test fun testAppPixelsSurviveScrollingAwayAndBackWithoutReplacingTheDrawable() {
+        val ids=(0 until 32).map { "sample.keep.$it" };seedOrderCatalog(ids)
+        val card=find("grid:"+ids.first())!!;val image=imageFor("grid:"+ids.first())
+        await { onUi { image.drawable!=null } }
+        val drawable=onUi { image.drawable }
+        onUi { (find("home:viewport") as android.widget.ScrollView).scrollTo(0,10000) }
+        SystemClock.sleep(100L);instrumentation.waitForIdleSync()
+        onUi {
+            assertFalse(card.getGlobalVisibleRect(android.graphics.Rect()))
+            assertSame("Um cartão fora da tela não pode voltar às letras só por rolar",drawable,image.drawable)
+            (find("home:viewport") as android.widget.ScrollView).scrollTo(0,0)
+        }
+        SystemClock.sleep(100L);instrumentation.waitForIdleSync()
+        onUi { assertSame(drawable,image.drawable) }
+    }
+
+    @Test fun testUnchangedPackageEventsAndMemoryPressureDoNotBlinkVisibleApps() {
+        await { onUi { !MainActivity::class.java.getDeclaredField("scanning").apply { isAccessible=true }.getBoolean(screen) } }
+        val card=find("grid:"+fixture)!!;val image=imageFor("grid:"+fixture)
+        await { onUi { image.drawable!=null } };val drawable=onUi { image.drawable }
+        onUi {
+            val receiver=MainActivity::class.java.getDeclaredField("packageEvents").apply { isAccessible=true }.get(screen) as android.content.BroadcastReceiver
+            repeat(4) { receiver.onReceive(screen,Intent(Intent.ACTION_PACKAGE_CHANGED).setData(android.net.Uri.parse("package:com.example.background.service"))) }
+        }
+        await { onUi {
+            !MainActivity::class.java.getDeclaredField("appsDirty").apply { isAccessible=true }.getBoolean(screen) &&
+            !MainActivity::class.java.getDeclaredField("scanning").apply { isAccessible=true }.getBoolean(screen)
+        } }
+        onUi {
+            assertSame("Eventos sem alteração no catálogo não podem recriar os cartões",card,find("grid:"+fixture))
+            assertSame(drawable,image.drawable)
+            for(level in listOf(android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN,
+                android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW,android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL)) {
+                screen.onTrimMemory(level);assertSame("O ícone visível deve permanecer pronto",drawable,image.drawable)
+            }
+        }
+    }
+
+    @Test fun testUsingAnAppOutsideTheManualTopActuallyPromotesItAndKeepsTheGrid() {
+        val ids=(0 until 12).map { "sample.promote.$it" }
+        val prefs=instrumentation.targetContext.getSharedPreferences("launcher",0)
+        prefs.edit().putString("order.top",AppOrdering.encode(ids.take(7))).commit();seedOrderCatalog(ids)
+        val target=ids.last { it !in laneOrder("top") };val card=find("grid:"+target)
+        assertFalse(laneOrder("top").contains(target))
+        repeat(3) { index ->
+            click("grid:"+target)
+            await { onUi { !screen.hasWindowFocus() } }
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand("input keyevent 4")).use { it.readBytes() }
+            await { onUi { screen.hasWindowFocus() } }
+            await { target in laneOrder("top") }
+            assertEquals(index+1,prefs.getInt("usage.count."+target,0))
+            assertSame("Promover um app não deve recriar a grade",card,find("grid:"+target))
+        }
+        assertEquals(target,laneOrder("top").first())
+    }
+
+    @Test fun testFinalAddCardSelectsAnAppWithoutLaunchingAndPersistsItsMembership() {
+        val ids=(0 until 12).map { "sample.add.$it" };seedOrderCatalog(ids)
+        val before=laneOrder("top");val target=ids.last { it !in before }
+        onUi { find("top:"+before.last())!!.requestFocus() }
+        key(KeyEvent.KEYCODE_DPAD_RIGHT)
+        assertEquals("top-action:add",onUi { screen.currentFocus?.tag })
+        key(KeyEvent.KEYCODE_DPAD_CENTER)
+        await { find("top-picker:"+target)!=null }
+        click("top-picker:"+target)
+        await { find("launcher-panel")==null && find("top:"+target)!=null }
+        assertEquals(before+target,laneOrder("top"))
+        val prefs=instrumentation.targetContext.getSharedPreferences("launcher",0)
+        assertTrue(target in prefs.getStringSet("pinned_apps",emptySet())!!)
+        assertEquals(0,prefs.getInt("usage.count."+target,0))
+        assertEquals("top:"+target,onUi { screen.currentFocus?.tag })
+        val backup=LauncherBackup.parse(LauncherBackup.export(prefs,false))
+        assertEquals(8,backup.values["top_count"])
+        assertTrue(target in (backup.values["pinned_apps"] as Set<*>))
+        scenario.recreate();scenario.onActivity { screen=it };await { find("grid:"+fixture)!=null };seedOrderCatalog(ids)
+        assertEquals(before+target,laneOrder("top"))
+        // Later automatic usage cannot remove a manually added card.
+        val other=ids.last { it !in laneOrder("top") }
+        prefs.edit().putInt("usage.count."+other,20).commit();seedOrderCatalog(ids)
+        assertTrue(target in laneOrder("top"));assertTrue(other in laneOrder("top"))
     }
 
     @Test fun testScrolledCardsStayInsideViewportAtEveryCardSize() {
@@ -558,11 +647,17 @@ class LauncherNavigationTest {
 
     @Test fun testReturningFromExternalAppReusesGridViews() {
         val before = find("grid:"+fixture)
+        val icon=imageFor("top:"+fixture)
+        await { onUi { icon.drawable!=null } };val pixels=onUi { icon.drawable }
         onUi {
             screen.startActivity(Intent().setClassName(fixture,FixtureActivity::class.java.name)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
-        await { onUi { !screen.hasWindowFocus() } }
+        await { onUi { !screen.hasWindowFocus() && !MainActivity::class.java.getDeclaredField("foreground").apply { isAccessible=true }.getBoolean(screen) } }
+        onUi {
+            screen.onTrimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND)
+            assertSame("Os ícones essenciais da Home devem resistir à pressão de memória em outro aplicativo",pixels,icon.drawable)
+        }
         // The fixture runs as an external app; shell input returns across packages.
         android.os.ParcelFileDescriptor.AutoCloseInputStream(
             instrumentation.uiAutomation.executeShellCommand("input keyevent 4")
@@ -570,6 +665,7 @@ class LauncherNavigationTest {
         instrumentation.waitForIdleSync()
         await { onUi { screen.hasWindowFocus() } }
         assertSame("A grade foi recriada sem alteração nos apps",before,find("grid:"+fixture))
+        onUi { assertSame("Voltar de outro aplicativo não deve trocar a imagem pronta por um placeholder",pixels,icon.drawable) }
     }
 
     @Test fun testEconomyModeAndRepeatedPanelOpenClose() {
@@ -711,6 +807,7 @@ class LauncherNavigationTest {
             File(folder,name).outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG,100,it) }
         }
         capture("home.png")
+        click("top-action:add");capture("app-picker.png");key(KeyEvent.KEYCODE_BACK)
         key(KeyEvent.KEYCODE_MENU)
         await { find("action:wifi")?.hasFocus() == true }
         capture("action-center.png")
