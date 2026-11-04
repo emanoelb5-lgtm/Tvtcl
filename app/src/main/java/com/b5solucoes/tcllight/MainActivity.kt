@@ -682,6 +682,7 @@ class MainActivity : Activity() {
 
     private fun releaseEvictedArtwork(component:ComponentName,bitmap:android.graphics.Bitmap) {
         val layingOut=::frame.isInitialized && frame.isLayoutRequested
+        if(layingOut && foreground) requestArtworkUpdate()
         artworkBindings.filter { it.component==component && it.art?.bitmap===bitmap }.forEach {
             if(!foreground || !layingOut && !artworkVisible(it)) clearArtwork(it)
         }
