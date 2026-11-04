@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify the published update through the real 0.12.0 UI and Android installer."""
+"""Verify the published update through the real 0.13.0 UI and Android installer."""
 import atexit
 import json
 from pathlib import Path
@@ -87,7 +87,7 @@ def open_home():
 
 # This is a disposable emulator; never downgrade the owner's installed application.
 subprocess.run(["adb", "uninstall", pkg], capture_output=True, check=False)
-assert "Success" in adb("install", str(root / "dist/baseline/TCL-Light-0.12.0.apk"))
+assert "Success" in adb("install", str(root / "dist/baseline/TCL-Light-0.13.0.apk"))
 shell("settings", "put", "system", "system_locales", "pt-BR")
 assert "Success" in shell("cmd", "package", "set-home-activity", "--user", "0", pkg + "/.MainActivity")
 stock = resolved_home().split("/")[0]
@@ -118,7 +118,7 @@ else:
     raise AssertionError("A preferência não mudou após o único toque no controle")
 shell("input", "keyevent", "20")
 activate("Atualizar TCL Light.")
-# 0.12.0 may already have found this release through its foreground automatic check.
+# 0.13.0 may already have found this release through its foreground automatic check.
 # Accept that real state, or request one manual check when the action is still available.
 download_label = "Baixar versão " + version["version_name"] + "."
 until = time.monotonic() + 60
@@ -176,7 +176,7 @@ shell("input", "keyevent", "82")
 assert wait_node("Modo leve.").get("content-desc") == saved, "A atualização interna perdeu a configuração"
 snapshot("updated")
 screenshot("updated")
-report = {"baseline_version": "0.12.0", "version": version["version_name"], "version_code": version["version_code"],
+report = {"baseline_version": "0.13.0", "version": version["version_name"], "version_code": version["version_code"],
           "method": "Public GitHub beta feed, application download, signature check, native installer confirmation",
           "result": "Success", "custom_home_preserved": True, "preference_preserved": True,
           "test_environment": "Android TV API 28, 1280x720", "certificate_sha256":

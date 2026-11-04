@@ -11,7 +11,7 @@ import android.graphics.drawable.Drawable
 internal class TvIcon(private val kind: Kind, color: Int) : Drawable() {
     enum class Kind { WIFI, CABLE, DEVICES, TV, HOME, REFRESH, CONTROLS, GRID, CLOSE,
         CHEVRON, PALETTE, LEAF, STORAGE, PIN, EYE, INFO, IMAGE, SUN, CLOUD, RAIN, LEFT, RIGHT, SIZE, CHECK,
-        SEARCH, MIC, PLAY, PAUSE, CALENDAR, BELL }
+        SEARCH, MIC, PLAY, PAUSE, CALENDAR, BELL, PLUS }
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         this.color = color
         style = Paint.Style.STROKE
@@ -27,6 +27,7 @@ internal class TvIcon(private val kind: Kind, color: Int) : Drawable() {
         path.reset()
         fun line(x: Float, y: Float, x2: Float, y2: Float) = canvas.drawLine(x,y,x2,y2,paint)
         when (kind) {
+            Kind.PLUS -> { line(5f,12f,19f,12f);line(12f,5f,12f,19f) }
             Kind.SEARCH -> { canvas.drawCircle(10f,10f,6f,paint);line(14.5f,14.5f,21f,21f) }
             Kind.MIC -> { canvas.drawRoundRect(9f,2f,15f,15f,3f,3f,paint);canvas.drawArc(5f,6f,19f,19f,0f,180f,false,paint);line(12f,19f,12f,23f);line(8f,23f,16f,23f) }
             Kind.PLAY -> { path.moveTo(7f,3f);path.lineTo(21f,12f);path.lineTo(7f,21f);path.close();canvas.drawPath(path,paint) }

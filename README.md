@@ -1,12 +1,12 @@
-# TCL Light 0.13.0
+# TCL Light 0.14.0
 
 Launcher nativo em Kotlin para Android TV, com foco em controle remoto e TVs com pouca memória.
 
-[Baixar TCL-Light-0.13.0.apk](https://github.com/emanoelb5-lgtm/Tvtcl/releases/download/v0.13.0/TCL-Light-0.13.0.apk) · [Versões](https://github.com/emanoelb5-lgtm/Tvtcl/releases)
+[Baixar TCL-Light-0.14.0.apk](https://github.com/emanoelb5-lgtm/Tvtcl/releases/download/v0.14.0/TCL-Light-0.14.0.apk) · [Versões](https://github.com/emanoelb5-lgtm/Tvtcl/releases)
 
 ## Instalação e atualizações
 
-Se você já usa a **0.7.0 a 0.12.0, instale a 0.13.0 por cima**, sem desinstalar. O pacote e a assinatura permanente são os mesmos; a organização, os ajustes e a escolha de tela inicial são mantidos. As betas anteriores à 0.7.0 usaram chaves de teste diferentes e exigem migração única.
+Se você já usa a **0.7.0 a 0.13.0, instale a 0.14.0 por cima**, sem desinstalar. O pacote e a assinatura permanente são os mesmos; a organização, os ajustes e a escolha de tela inicial são mantidos. As betas anteriores à 0.7.0 usaram chaves de teste diferentes e exigem migração única.
 
 Na 0.8.0 ou posterior, abra **Central → Atualizar TCL Light → Verificar atualizações**. Quando houver uma versão nova, escolha Baixar e depois Instalar. O Android pode pedir que você permita instalações pelo TCL Light; a confirmação final continua sendo feita no instalador da TV. O download é manual, pelo GitHub. Com a Home visível, o launcher consulta somente os metadados de atualização, após a abertura e depois respeitando um intervalo de seis horas; falhas permitem tentar novamente após 15 minutos. Não há serviço permanente, download nem instalação automática. Um ícone aparece na barra superior quando existe uma versão compatível mais recente. A última versão anunciada fica salva para o aviso sobreviver ao fechamento do aplicativo.
 
@@ -28,6 +28,14 @@ O certificado público fica em [signing/tcl-light-release.pem](signing/tcl-light
 - A Play Store aparece entre os aplicativos quando instalada e habilitada, inclusive como app de sistema, e tem atalho na Central.
 - A faixa superior fica fora da área de rolagem, com recorte dos cartões para que nunca a cubram. Ela reúne clima de Garrafão do Norte, hora, data, rede, entradas e Central. Não há botão de marca nem nomes repetidos sob os cartões.
 
+## Ícones estáveis e mais utilizados na 0.14.0
+
+- Sair da área visível não apaga um ícone carregado. Cartões são reutilizados quando a fileira muda de ordem ou após voltar de um aplicativo; imagens em cache são aplicadas antes de desenhar cartões novos.
+- As imagens visíveis ficam protegidas enquanto a RAM de imagens fora da tela pode ser liberada. Cache de ícones: 4 MiB em dispositivos de pouca memória e 6 MiB nos demais, com banners de até 256×144 e ícones de 128×128. Até sete imagens essenciais da próxima Home são preservadas ao abrir outro aplicativo. O cache local anterior é reutilizado e reduzido gradualmente, sem duplicar os diretórios.
+- Eventos de instalação são agrupados; uma consulta que encontra o mesmo catálogo não recria os cartões. Atualizações reais de aplicativos substituem suas imagens preservando o ícone anterior até a nova imagem ficar pronta. A carga inicial usa um símbolo neutro, sem letras piscando.
+- A seleção de Mais utilizados considera uso e fixações antes de aplicar a ordem visual. A organização manual anterior não bloqueia a entrada de um aplicativo que passou a ser mais utilizado; novas entradas ficam visíveis no início da fileira. Mesmo uma fileira totalmente fixada mantém espaço para uma entrada por uso. Lançamentos feitos no launcher são contados e aplicados ao voltar à Home, inclusive pelo caminho de novo intent.
+- O cartão **Adicionar** fica no fim da primeira fileira. Abre uma grade para escolher um aplicativo e mantê-lo fixado, sem abri-lo nem alterar sua contagem de uso. A inclusão amplia a fileira, preserva os itens anteriores e entra no backup. Segurar OK permite desafixar ou reorganizar.
+
 ## Carregamento na 0.13.0
 
 - A Home lê um snapshot local da lista e reconcilia instalações, remoções, componentes e versões em segundo plano. O catálogo tem prioridade sobre a consulta das entradas do firmware.
@@ -35,7 +43,7 @@ O certificado público fica em [signing/tcl-light-release.pem](signing/tcl-light
 - Continuar assistindo, Minha lista e a busca compartilham as capas e os downloads em andamento. Um worker de disco separado permite reaproveitar capas locais mesmo quando downloads estão lentos.
 - Os cartões visíveis são priorizados; o pré-carregamento se limita aos vizinhos imediatos. A ordem, a apresentação e o progresso de Continuar assistindo são preservados.
 - Sair da Home não apaga os caches. Pressão real de memória reduz ou libera a RAM; as cópias locais continuam disponíveis. Nenhum serviço de cache permanece rodando em segundo plano.
-- Limites: ícones 2 MiB de RAM em aparelhos de pouca memória, 4 MiB nos demais; capas compartilhadas 2/3 MiB. Disco: até 8 MiB de ícones + 16 MiB de capas, 128 arquivos por grupo. Downloads continuam limitados a 1 MiB e decodificação amostrada; só thumbnails são persistidos no cache privado, sem backup.
+- Limites: ícones 4 MiB de RAM em aparelhos de pouca memória, 6 MiB nos demais (0.14.0); capas compartilhadas 2/3 MiB. Disco: até 8 MiB de ícones + 16 MiB de capas, 128 arquivos por grupo. Downloads continuam limitados a 1 MiB e decodificação amostrada; só thumbnails são persistidos no cache privado, sem backup.
 - As capas HTTPS têm validade de até sete dias, e as de provedores locais, uma hora. A primeira capa ainda depende do serviço que a fornece; depois pode ser reutilizada sem outro download. Limpar o cache do Android remove essas cópias descartáveis.
 
 ## Descoberta e navegação na 0.12.0
@@ -96,9 +104,9 @@ Fonte das coordenadas: [IBGE, mapa municipal](https://geoftp.ibge.gov.br/cartas_
 2. Gera APK release unsigned e um APK interno com código maior para testar a atualização; nenhum APK debug é distribuído.
 3. O proprietário assina com a chave permanente usando [tools/sign_release.py](tools/sign_release.py), em ambiente privado.
 4. A branch `signed-releases` contém somente material público de distribuição e o fonte; não contém a chave ou suas senhas.
-5. O workflow valida pacote, versões, hashes, metadados de atualização e certificado fixo. No emulador, instala a 0.12.0 pública, altera uma preferência pela interface e aplica a 0.13.0 com `adb install -r`. Depois aplica um APK interno de código maior. A publicação exige que as duas atualizações preservem o Home alternativo e a preferência.
+5. O workflow valida pacote, versões, hashes, metadados de atualização e certificado fixo. No emulador, instala a 0.13.0 pública, altera uma preferência pela interface e aplica a 0.14.0 com `adb install -r`. Depois aplica um APK interno de código maior. A publicação exige que as duas atualizações preservem o Home alternativo e a preferência.
 
-Depois da publicação, outra instalação limpa da 0.12.0 usa o próprio atualizador para consultar o canal beta, baixar a 0.13.0 e confirmar a instalação no instalador Android. A escolha de Home e a preferência salva também são verificadas nesse caminho.
+Depois da publicação, outra instalação limpa da 0.13.0 usa o próprio atualizador para consultar o canal beta, baixar a 0.14.0 e confirmar a instalação no instalador Android. A escolha de Home e a preferência salva também são verificadas nesse caminho.
 
 O APK interno de teste não é publicado em Releases. O resultado da verificação acompanha o APK público. O teste reproduz o caso em que a imagem Android TV dá prioridade ao Google: desativa o launcher original apenas para o usuário do emulador descartável, confirma o TCL Light como Home e restaura o componente ao terminar. Os testes do atualizador usam o APK público 0.7.0 de assinatura permanente para validar downloads, integridade e identidade; ele só entra no APK de testes. Esses testes não substituem a validação do instalador no firmware da TCL física.
 
