@@ -647,11 +647,17 @@ class LauncherNavigationTest {
 
     @Test fun testReturningFromExternalAppReusesGridViews() {
         val before = find("grid:"+fixture)
+        val icon=imageFor("top:"+fixture)
+        await { onUi { icon.drawable!=null } };val pixels=onUi { icon.drawable }
         onUi {
             screen.startActivity(Intent().setClassName(fixture,FixtureActivity::class.java.name)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
-        await { onUi { !screen.hasWindowFocus() } }
+        await { onUi { !screen.hasWindowFocus() && !MainActivity::class.java.getDeclaredField("foreground").apply { isAccessible=true }.getBoolean(screen) } }
+        onUi {
+            screen.onTrimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND)
+            assertSame("Os ícones essenciais da Home devem resistir à pressão de memória em outro aplicativo",pixels,icon.drawable)
+        }
         // The fixture runs as an external app; shell input returns across packages.
         android.os.ParcelFileDescriptor.AutoCloseInputStream(
             instrumentation.uiAutomation.executeShellCommand("input keyevent 4")
@@ -659,6 +665,7 @@ class LauncherNavigationTest {
         instrumentation.waitForIdleSync()
         await { onUi { screen.hasWindowFocus() } }
         assertSame("A grade foi recriada sem alteração nos apps",before,find("grid:"+fixture))
+        onUi { assertSame("Voltar de outro aplicativo não deve trocar a imagem pronta por um placeholder",pixels,icon.drawable) }
     }
 
     @Test fun testEconomyModeAndRepeatedPanelOpenClose() {

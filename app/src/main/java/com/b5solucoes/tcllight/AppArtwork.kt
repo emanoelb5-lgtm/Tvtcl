@@ -16,7 +16,7 @@ internal data class Artwork(val bitmap: Bitmap,val banner: Boolean)
 /** Small shared resident images. Visible cards are pinned; only actual pressure evicts offscreen art. */
 internal class AppArtwork(context: Context,private val directory: File=File(context.cacheDir,"app-thumbnails-v1"),
     private val evicted: (ComponentName,Bitmap)->Unit={_,_->},private val source: ((ComponentName)->Artwork?)?=null) {
-    private data class Source(val revision: String,val info: ActivityInfo?)
+    private data class Source(val revision: String,val info: ActivityInfo?,val key:String)
     private data class Resident(val component: ComponentName,val art: Artwork)
     private val manager=context.applicationContext.packageManager
     private val identity=context.resources.configuration.let {
@@ -24,7 +24,7 @@ internal class AppArtwork(context: Context,private val directory: File=File(cont
         val language=if(android.os.Build.VERSION.SDK_INT>=24) it.locales.toLanguageTags() else it.locale.toString()
         "$language|${it.densityDpi}|${it.uiMode and 48}"
     }
-    private val sources=ConcurrentHashMap<String,Source>()
+    private val sources=ConcurrentHashMap<ComponentName,Source>()
     private val worker=ArtworkQueue("tv-artwork")
     private val main=Handler(Looper.getMainLooper())
     private val waiting=HashMap<String,MutableList<(Artwork?)->Unit>>()
@@ -35,11 +35,17 @@ internal class AppArtwork(context: Context,private val directory: File=File(cont
     private val disk=ThumbnailStore(directory,8L*1024*1024)
     private var closed=false
     private var generation=0
-    fun register(component: ComponentName,revision: String,info: ActivityInfo?=null) { sources[component.flattenToString()]=Source(revision,info) }
-    fun revision(component: ComponentName)=component.flattenToString()+"|"+sources[component.flattenToString()]?.revision.orEmpty()+"|"+identity
+    fun register(component: ComponentName,revision: String,info: ActivityInfo?=null) {
+        sources[component]=Source(revision,info,component.flattenToString()+"|"+revision+"|"+identity)
+    }
+    fun revision(component: ComponentName)=sources[component]?.key ?: (component.flattenToString()+"||"+identity)
     fun peek(component: ComponentName): Artwork? = cache[revision(component)]?.art
     fun contains(bitmap: Bitmap)=cache.values.any { it.art.bitmap===bitmap }
-    fun setVisible(components: Set<ComponentName>) { visible=components;prune(memoryBytes) }
+    fun setVisible(components: Set<ComponentName>) {
+        visible=components
+        components.forEach { cache[revision(it)] } // Merely seeing an already-bound image is a real cache access.
+        prune(memoryBytes)
+    }
     private fun prune(limit: Int) {
         val removed=ArrayList<Resident>()
         val iterator=cache.entries.iterator()
@@ -85,7 +91,7 @@ internal class AppArtwork(context: Context,private val directory: File=File(cont
     }
     private fun decode(component: ComponentName): Artwork? {
         @Suppress("DEPRECATION")
-        val info=sources[component.flattenToString()]?.info ?: manager.getActivityInfo(component,0)
+        val info=sources[component]?.info ?: manager.getActivityInfo(component,0)
         val wide=info.loadBanner(manager)?.takeIf { it.intrinsicWidth>0 && it.intrinsicHeight>0 && it.intrinsicWidth.toFloat()/it.intrinsicHeight>=1.45f }
         val drawable=wide ?: info.loadIcon(manager)
         val w=if(wide!=null) 256 else 128;val h=if(wide!=null) 144 else 128

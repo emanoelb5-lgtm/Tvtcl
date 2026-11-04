@@ -30,8 +30,9 @@ class OrderingAndWeatherTest {
     @Test fun allManuallyPinnedAppsRemainAvailableRegardlessOfUsageAndOldSlots() {
         val ranked=(0..12).map { "app$it" };val pins=setOf("app9","app10","app11","app12","app8","app7")
         val selected=TopApps.select(ranked,pins,5,ranked.take(5)) { it }
-        assertEquals(pins,selected.toSet())
-        assertEquals(6,selected.size)
+        assertTrue(selected.containsAll(pins))
+        assertTrue("Mesmo com todos os lugares fixados, deve haver uma entrada por uso",ranked.first() in selected)
+        assertEquals(7,selected.size)
     }
 
     @Test fun weatherRejectsBadDataAndDoesNotPresentExpiredValuesAsCurrent() {

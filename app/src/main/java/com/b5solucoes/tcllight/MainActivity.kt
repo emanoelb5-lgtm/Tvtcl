@@ -243,7 +243,7 @@ class MainActivity : Activity() {
         finishMoving(true)
         foreground = false
         artworkBindings.forEach { it.visible=false }
-        artwork.setVisible(emptySet())
+        artwork.setVisible(protectedArtwork())
         handler.removeCallbacks(packageRefresh)
         backgroundTv?.stop()
         mediaHub?.stop()
@@ -287,7 +287,7 @@ class MainActivity : Activity() {
         if(pressure) {
             val severe=level==TRIM_MEMORY_RUNNING_CRITICAL || level>=TRIM_MEMORY_MODERATE
             // Keep pixels already on screen. Eviction releases offscreen bindings, never flashes visible cards.
-            artwork.setVisible(artworkBindings.filter { artworkVisible(it) }.map { it.component }.toSet())
+            artwork.setVisible(protectedArtwork())
             artwork.trim(severe);mediaHub?.trim(severe)
             if(backgroundTv?.state==BackgroundTvState.PLAYING) backgroundTv?.fail("A TV ao fundo foi encerrada para liberar memória.")
         }
@@ -654,6 +654,10 @@ class MainActivity : Activity() {
             handler.postDelayed(updateVisibleArtwork,16L)
         }
     }
+
+    private fun protectedArtwork():Set<ComponentName> = if(foreground)
+        artworkBindings.filter { artworkVisible(it) }.map { it.component }.toSet()
+        else topApps(mediaApps.filterNot { it.packageName in hiddenApps() }).take(7).map { it.component }.toSet()
 
     private fun artworkVisible(binding: ArtworkBinding): Boolean = foreground &&
         (if(activePanel=="top-picker") binding.picker else !binding.picker) &&
